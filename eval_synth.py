@@ -8,8 +8,8 @@ Loss alone cannot separate recall from skill, so the report splits three cases:
   not seen      in the training number ranges, but not in the training set
   out of range  numbers outside the training ranges, the hardest test of copying and arithmetic
 
-A checkpoint must be scored on the same solution format it was trained on: older checkpoints give
-0 everywhere, because their solutions have no worked steps.
+A checkpoint must be scored on the same solution format it was trained on: older checkpoints fail
+every problem type whose solution now has worked steps.
 """
 import argparse
 import math
