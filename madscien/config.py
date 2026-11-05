@@ -27,7 +27,7 @@ class X5Config:
 
     # ---- the algorithm (Steps 1-6) - same names/defaults as the numpy reference
     window: int = 32                 # one "problem" = the last `window` tokens (causal)
-    dilation_cycle: bool = True      # layer l looks at every 2^(l mod c)-th token
+    dilation_cycle: bool = True      # l-th X5 layer looks at every 2^(l mod c)-th token
     core_dim: int = 16               # d    : dimension of the charge space
     keep_k: int = 6                  # k    : Gauss gate keeps the k strongest charges
     flux_loops: int = 8              # m_f  : flux loops == grid points of the integral
@@ -79,7 +79,12 @@ class X5Config:
     def n_cases(self):
         return sum(math.comb(self.keep_k, r) for r in range(1, self.max_subset + 1))
 
+    def x5_index(self, i):
+        """Position of layer i among the X5 layers only (attention layers are skipped)."""
+        return sum(not self.is_attn_layer(j) for j in range(i))
+
     def dilation(self, layer):
+        """Dilation of the `layer`-th X5 layer (counted among X5 layers, see x5_index)."""
         if not self.dilation_cycle:
             return 1
         max_dil = max(1, self.block_size // self.window)
@@ -89,7 +94,7 @@ class X5Config:
     def receptive_field(self):
         if self.attn_every > 0:
             return self.block_size            # attention layers see the whole context
-        return 1 + sum((self.window - 1) * self.dilation(l) for l in range(self.n_layer))
+        return 1 + sum((self.window - 1) * self.dilation(l) for l in range(self.n_x5_layers))
 
     def to_dict(self):
         return asdict(self)

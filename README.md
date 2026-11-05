@@ -18,6 +18,16 @@ python sample.py --ckpt out/ckpt.pt --prompt "Problem: Two charges 3 uC and 4 uC
 Your own synthetic data: put it in a text file, documents separated by blank lines, then
 `python -m madscien.data --source text --path my.txt --out data/mine`.
 
+Checkpoints: `out/ckpt.pt` = best validation loss (used by `sample.py`), `out/last.pt` = most recent
+eval (used by `--resume`). The final iteration is always evaluated and saved.
+
+Score a checkpoint on the synthetic problems, by exact full solution (uses the GPU if there is one):
+```bash
+python eval_synth.py --ckpt out/ckpt.pt --data_dir data/synth
+```
+It reports problems seen in training, problems not seen, and numbers outside the training ranges.
+Only the last two test more than recall: a low loss can still mean 0% out of range.
+
 ## Your algorithm -> code
 
 | Step | Your pseudo-code | Where | What it does |
@@ -61,8 +71,11 @@ from scale (parameters, tokens, compute) and post-training, which no architectur
 ## Chat behaviour (ChatGPT-style conversation)
 Chat format: `<BOS><|system|>..<|end|><|user|>..<|end|><|assistant|>..<|end|>` (`madscien/chat.py`).
 SFT trains **only on assistant text and its `<|end|>`** (loss mask), so the model learns what to say
-and when to stop. The default persona: answer first, concise, one clarifying question when a request is
-ambiguous, admit uncertainty, mirror the user's language (English / Hinglish).
+and when to stop. The default persona (a one-line system prompt, short so it fits the small contexts):
+friendly, honest, concise, mirror the user's language (English / Hinglish). The habits themselves
+(answer first, one clarifying question when ambiguous, admit uncertainty) are taught by the SFT data.
+If a prompt does not fit, `chat_cli.py` drops old turns first, then shortens the system prompt, and only
+then trims the user's message.
 
 Recipe (pretrain first, then SFT):
 ```bash
@@ -104,6 +117,8 @@ python train.py --data_dir data/code --preset small --max_iters 5000
 python code_eval.py --ckpt out/ckpt.pt --n_tasks 100 --n_samples 8
 python code_eval.py --selftest          # harness check, no model needed
 ```
+Eval tasks are held out: any prompt that occurs in the training set is skipped. If you built the data
+with a different `--n_docs`/`--seed`, pass the same values as `--train_n_docs`/`--train_seed`.
 
 Honest limits: the model only sees these task families, so it learns to solve *these kinds* of
 problems (and variants), not arbitrary programming. General coding needs a large model trained on

@@ -42,6 +42,34 @@ def test_fit_to_context_keeps_system_and_newest_turns():
     assert len(encode_chat(fit_to_context(huge, 300), add_generation_prompt=True)[0]) <= 300
 
 
+def test_fit_to_context_shortens_persona_before_the_user_message():
+    question = "What is the force between two 3 uC charges 2 m apart?"
+    for max_len in (64, 96, 192):                       # chat_cli budgets for tiny / small presets
+        long_system = [{"role": "system", "content": "persona " * 100}]
+        for msgs in (long_system, []):                 # explicit persona, and the default one
+            out = fit_to_context(msgs + [{"role": "user", "content": question}], max_len)
+            assert out[-1]["content"] == question
+            ids = encode_chat(out, add_generation_prompt=True)[0]
+            assert len(ids) <= max_len and ids[:2] == [BOS, SYSTEM]
+
+
+def test_default_system_prompt_fits_small_contexts():
+    ids, _ = encode_chat([{"role": "user", "content": "hi"}], add_generation_prompt=True)
+    assert len(ids) <= 128 - 128 // 4                   # fits chat_cli's prompt budget in the tiny preset
+
+
+def test_synthetic_coulomb_answers_never_round_to_zero():
+    from madscien.data import synth_doc
+    rng = np.random.default_rng(0)
+    for _ in range(5000):
+        d = synth_doc(rng)
+        if d.startswith("Problem: Two charges"):
+            q1, q2, r = map(int, re.findall(r"(\d+) uC and (\d+) uC are (\d+) m", d)[0])
+            got = float(re.findall(r"= ([0-9.e+-]+) N", d)[0])
+            want = 9e9 * q1 * 1e-6 * q2 * 1e-6 / r ** 2
+            assert got > 0 and abs(got - want) / want < 0.005, d
+
+
 def test_synthetic_conversations_are_well_formed_and_varied():
     convs = list(synthetic_conversations(400, seed=1))
     text = json.dumps(convs)

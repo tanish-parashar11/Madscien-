@@ -38,6 +38,11 @@ def _fmt(x):
     return f"{x:.3f}".rstrip("0").rstrip(".")
 
 
+def _sig(x, n=3):
+    """n significant figures; for small answers where 3 decimals would round to 0."""
+    return f"{x:.{n}g}"
+
+
 def synth_doc(rng):
     """One synthetic worked problem. Topics mirror the algorithm: electrostatics, EMI,
     angular momentum, MOT bond order, GOC stability, King property, P&C."""
@@ -46,7 +51,7 @@ def synth_doc(rng):
         q1, q2, r = (int(rng.integers(1, 20)), int(rng.integers(1, 20)), int(rng.integers(1, 10)))
         F = 9e9 * (q1 * 1e-6) * (q2 * 1e-6) / (r * r)
         return (f"Problem: Two charges {q1} uC and {q2} uC are {r} m apart. Find the force.\n"
-                f"Solution: F = k q1 q2 / r^2 = 9e9 x {q1}e-6 x {q2}e-6 / {r}^2 = {_fmt(F)} N, repulsive.\n")
+                f"Solution: F = k q1 q2 / r^2 = 9e9 x {q1}e-6 x {q2}e-6 / {r}^2 = {_sig(F)} N, repulsive.\n")
     if kind == 1:
         n, dphi, dt = int(rng.integers(10, 100)), int(rng.integers(1, 50)) / 100, int(rng.integers(1, 6))
         return (f"Problem: A coil of {n} turns sees its flux change by {_fmt(dphi)} Wb in {dt} s. Find the emf.\n"

@@ -42,6 +42,14 @@ def cumtrapz(y, h):
     return torch.cat([torch.zeros_like(y[..., :1]), torch.cumsum(mid, dim=-1)], dim=-1)
 
 
+def normalize_weights(w):
+    """w / (sum + 1e-9) in the forward pass, with a larger eps in the backward pass: when every survivor
+    has near-zero probability (e.g. padding-only cases in a partial window) the plain gradient explodes."""
+    total = w.sum(-1, keepdim=True)
+    safe = w / (total + 1e-4)
+    return safe + (w / (total + 1e-9) - safe).detach()
+
+
 class X5Core(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -153,7 +161,7 @@ class X5Core(nn.Module):
 
         # ===== Step 6: Singularity Core =====
         w = keep * prob * stab * bond_order.clamp_min(0.5)
-        w = w / (w.sum(-1, keepdim=True) + 1e-9)
+        w = normalize_weights(w)
         point = torch.einsum("nc,ncs->ns", w, sol)               # everything -> ONE point
         feats = torch.cat([point, keep.mean(-1, keepdim=True), enclosed.unsqueeze(-1)], dim=-1)
 

@@ -97,12 +97,14 @@ def run_tests(code, entry, cases, timeout=5.0, mem_mb=1024) -> TestResult:
         with open(hp, "w") as f:
             f.write(_HARNESS)
         kw = {}
+        env = {"PATH": os.environ.get("PATH", "")}
         if os.name == "posix":
             kw["preexec_fn"] = _limits(int(math.ceil(timeout)) + 1, mem_mb)
+        elif "SYSTEMROOT" in os.environ:
+            env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]    # Python cannot start on Windows without it
         try:
             p = subprocess.run([sys.executable, "-I", hp, pj], cwd=td, capture_output=True,
-                               text=True, timeout=timeout,
-                               env={"PATH": os.environ.get("PATH", "")}, **kw)
+                               text=True, timeout=timeout, env=env, **kw)
         except subprocess.TimeoutExpired:
             return TestResult(0, total, "timeout")
         lines = [l for l in p.stdout.splitlines() if l.startswith("@@RESULT@@")]
@@ -113,7 +115,9 @@ def run_tests(code, entry, cases, timeout=5.0, mem_mb=1024) -> TestResult:
 
 
 def pass_at_k(n: int, c: int, k: int) -> float:
-    """Unbiased estimator of P(at least one of k samples passes) given c of n passed."""
+    """Unbiased estimator of P(at least one of k samples passes) given c of n passed. Needs k <= n."""
+    if not 0 <= c <= n or k < 1 or k > n:
+        raise ValueError(f"pass@k needs 0 <= c <= n and 1 <= k <= n, got n={n}, c={c}, k={k}")
     if n - c < k:
         return 1.0
     return 1.0 - math.comb(n - c, k) / math.comb(n, k)

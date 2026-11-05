@@ -8,11 +8,8 @@ say and WHEN to stop). System/user tokens are context only.
 """
 from .data import ASSISTANT, BOS, END, SYSTEM, USER, ByteTokenizer
 
-DEFAULT_SYSTEM = (
-    "You are MADSCIEN, a friendly and honest assistant built by Youtri. Talk like a thoughtful person: "
-    "answer the question first, keep it concise, ask one short clarifying question when a request is "
-    "ambiguous, say so plainly when you are unsure or wrong, and reply in the user's language."
-)
+# Kept short on purpose: every byte is a token, and the small presets only have 128-256 tokens of context.
+DEFAULT_SYSTEM = "You are MADSCIEN by Youtri: friendly, honest, concise; reply in the user's language."
 ROLE_ID = {"system": SYSTEM, "user": USER, "assistant": ASSISTANT}
 
 
@@ -36,8 +33,8 @@ def encode_chat(messages, tok=None, add_generation_prompt=False, default_system=
 
 
 def fit_to_context(messages, max_len, tok=None, default_system=DEFAULT_SYSTEM):
-    """Drop the oldest turns (never the system prompt) until the prompt fits in max_len tokens.
-    As a last resort, trim the start of the newest user message."""
+    """Drop the oldest turns until the prompt fits in max_len tokens. If it still does not fit, shorten
+    the system prompt (keeping its start), and as a last resort trim the start of the newest message."""
     tok = tok or ByteTokenizer()
     msgs = list(messages)
     system = [msgs.pop(0)] if msgs and msgs[0]["role"] == "system" else []
@@ -46,6 +43,11 @@ def fit_to_context(messages, max_len, tok=None, default_system=DEFAULT_SYSTEM):
         msgs.pop(0)
         while len(msgs) > 1 and msgs[0]["role"] != "user":
             msgs.pop(0)
+    if msgs and size(msgs) > max_len:                  # the user's message matters more than the persona
+        system = system or [{"role": "system", "content": default_system}]
+        raw = system[0]["content"].encode("utf-8")
+        keep = max(0, len(raw) - (size(msgs) - max_len))
+        system = [{"role": "system", "content": raw[:keep].decode("utf-8", errors="ignore")}]
     if msgs and size(msgs) > max_len:
         last = dict(msgs[-1])
         raw = last["content"].encode("utf-8")
