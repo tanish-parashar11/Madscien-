@@ -68,6 +68,8 @@ class SelfEvolver:
 
     # ---- bounded self-adaptation
     def _observe(self, ce, dL):
+        if not (math.isfinite(ce) and math.isfinite(dL)):
+            return                                  # one bad batch must not poison the averages for good
         self._ema = ce if self._ema is None else 0.98 * self._ema + 0.02 * ce
         self._dL_sum += dL
         self._n += 1

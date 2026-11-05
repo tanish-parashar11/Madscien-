@@ -168,7 +168,8 @@ def main():
             aux = (aux_acc / a.grad_accum).mean(0).tolist()
             print(f"iter {it:6d} | ce {ce_acc:.4f} | dL/L {aux[0]:.3f} | fallback {aux[1]:.2%} "
                   f"| survivors {aux[2]:.1f} | BO {aux[3]:.2f} | gnorm {gnorm:.2f} | lr {lr:.2e} "
-                  f"| lam_cons {evolver.lam_cons:.4f} | {(time.time() - t0) / (it - it0 + 1):.2f}s/it")
+                  f"| lam_cons {evolver.lam_cons:.4f} | skipped {evolver.skipped} "
+                  f"| {(time.time() - t0) / (it - it0 + 1):.2f}s/it")
 
 
 if __name__ == "__main__":

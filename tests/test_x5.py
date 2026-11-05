@@ -170,6 +170,16 @@ def test_overfits_a_tiny_batch_with_self_evolver():
     assert last < 0.5 * first, f"loss did not fall enough: {first:.3f} -> {last:.3f}"
 
 
+def test_evolver_ignores_a_non_finite_loss_when_adapting():
+    model = MadScienLM(tiny_cfg())
+    opt = model.configure_optimizers(0.0, 1e-3, (0.9, 0.95), "cpu")
+    evolver = SelfEvolver(model, opt, 1e-3, 1e-4, 1, 10)
+    evolver._observe(2.0, 0.1)
+    evolver._observe(float("nan"), 0.1)
+    evolver._observe(2.0, float("inf"))
+    assert evolver._ema == 2.0 and evolver._updates == 1
+
+
 def test_generate_shapes_and_sampling_modes():
     torch.manual_seed(0)
     cfg = tiny_cfg()

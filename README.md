@@ -28,6 +28,12 @@ python eval_synth.py --ckpt out/ckpt.pt --data_dir data/synth
 It reports problems seen in training, problems not seen, and numbers outside the training ranges.
 Only the last two test more than recall: a low loss can still mean 0% out of range.
 
+The synthetic solutions work the arithmetic out step by step, and about 10% of the numeric problems are
+held out of training to form the validation set, so `best val` measures problems the model never saw.
+Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
+exactly are cut off at 3 decimals and marked `...`, not rounded. Some solutions are longer than the
+`small` preset's 256-token context; each step only depends on the recent text.
+
 ## Your algorithm -> code
 
 | Step | Your pseudo-code | Where | What it does |

@@ -65,9 +65,9 @@ def test_synthetic_coulomb_answers_never_round_to_zero():
         d = synth_doc(rng)
         if d.startswith("Problem: Two charges"):
             q1, q2, r = map(int, re.findall(r"(\d+) uC and (\d+) uC are (\d+) m", d)[0])
-            got = float(re.findall(r"= ([0-9.e+-]+) N", d)[0])
-            want = 9e9 * q1 * 1e-6 * q2 * 1e-6 / r ** 2
-            assert got > 0 and abs(got - want) / want < 0.005, d
+            got = float(re.findall(r"F = ([0-9.]+?)(?:\.\.\.)? mN", d)[0])
+            want = 9 * q1 * q2 / r ** 2                 # 9e9 x 1e-6 x 1e-6 N = 9 mN
+            assert got > 0 and 0 <= want - got < 0.001, d   # cut off at 3 decimals, never rounded
 
 
 def test_synthetic_conversations_are_well_formed_and_varied():

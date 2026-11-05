@@ -1,25 +1,8 @@
 """Scorer checks with mock solvers: no model or GPU needed."""
-import math
-
 import numpy as np
 
-from eval_synth import OUT_OF_RANGE, TYPES, evaluate, in_range_problem, problem_type
-
-
-def answer_key(n_per_type, n_out_of_range, seed):
-    """Replays the problems evaluate() will ask, as {problem: solution}."""
-    key = {}
-    rng = np.random.default_rng(seed)
-    # far more draws than the rarest type needs, so every problem asked is covered
-    for _ in range(50 * n_per_type * len(TYPES)):
-        problem, solution = in_range_problem(rng)
-        key[problem] = solution
-    rng = np.random.default_rng(seed + 1)
-    for make in OUT_OF_RANGE.values():
-        for _ in range(n_out_of_range):
-            problem, solution = make(rng)
-            key[problem] = solution
-    return key
+from eval_synth import MAX_SOLUTION_TOKENS, OUT_OF_RANGE, evaluate, scoring_problems
+from madscien.data import SYNTH_KINDS, is_held_out
 
 
 def totals(rows):
@@ -27,32 +10,36 @@ def totals(rows):
 
 
 def test_perfect_solver_scores_everything_and_wrong_solver_nothing():
-    key = answer_key(3, 2, seed=1)
-    results, wrong = evaluate(key.__getitem__, known=set(), n_per_type=3, n_out_of_range=2, seed=1)
+    problems = scoring_problems(3, 2, seed=1)
+    key = {p: s for _, _, p, s in problems}
+    results, wrong = evaluate(key.__getitem__, set(), problems)
     assert not wrong
-    assert totals(results["not seen"]) == (3 * len(TYPES), 3 * len(TYPES))
+    in_range = 3 * len(SYNTH_KINDS) + 3 * (len(SYNTH_KINDS) - 1)      # goc has no held-out problems
+    assert totals(results["not seen"]) == (in_range, in_range)
     assert totals(results["out of range"]) == (2 * len(OUT_OF_RANGE), 2 * len(OUT_OF_RANGE))
 
-    results, wrong = evaluate(lambda p: "nonsense", known=set(), n_per_type=3, n_out_of_range=2, seed=1)
+    results, wrong = evaluate(lambda p: "nonsense", set(), problems)
     assert totals(results["not seen"])[0] == 0 and totals(results["out of range"])[0] == 0
     assert wrong
 
 
 def test_known_problems_are_counted_as_seen():
-    key = answer_key(2, 1, seed=2)
-    results, _ = evaluate(key.__getitem__, known=set(key), n_per_type=2, n_out_of_range=1, seed=2)
-    assert totals(results["seen"])[1] == 2 * len(TYPES)
+    problems = scoring_problems(2, 1, seed=2)
+    key = {p: s for _, _, p, s in problems}
+    results, _ = evaluate(key.__getitem__, set(key), problems)
+    assert totals(results["seen"])[1] == 2 * len(SYNTH_KINDS) + 2 * (len(SYNTH_KINDS) - 1)
     assert not results["not seen"]
 
 
-def test_out_of_range_problems_are_well_formed():
+def test_problem_groups_keep_their_promises():
+    problems = scoring_problems(20, 20, seed=3)
+    assert {name for _, name, _, _ in problems} == set(SYNTH_KINDS)
+    assert sum(is_held_out(p) for in_range, name, p, _ in problems if in_range) == 20 * (len(SYNTH_KINDS) - 1)
+
+
+def test_generation_limit_covers_the_longest_solutions():
     rng = np.random.default_rng(0)
-    for name, make in OUT_OF_RANGE.items():
-        for _ in range(20):
-            problem, solution = make(rng)
-            assert problem_type(problem) == name and problem.startswith("Problem: ")
-            assert solution.startswith(" ") and solution.endswith("\n")
-    problem, solution = OUT_OF_RANGE["combinations"](np.random.default_rng(3))
-    n = int(problem.split("from ")[1].rstrip("?"))
-    r = int(problem.split("can ")[1].split(" student")[0])
-    assert n >= 16 and solution.rstrip().endswith(f"= {math.comb(n, r)}.")
+    for make in OUT_OF_RANGE.values():
+        for _ in range(500):
+            _, solution = make(rng)
+            assert len(solution) + 1 < MAX_SOLUTION_TOKENS

@@ -6,7 +6,10 @@ Score a checkpoint on the synthetic worked problems (madscien/data.py), by exact
 Loss alone cannot separate recall from skill, so the report splits three cases:
   seen          the problem text is in the training set (recall)
   not seen      in the training number ranges, but not in the training set
-  out of range  numbers outside the training ranges, the only real test of copying and arithmetic
+  out of range  numbers outside the training ranges, the hardest test of copying and arithmetic
+
+A checkpoint must be scored on the same solution format it was trained on: older checkpoints give
+0 everywhere, because their solutions have no worked steps.
 """
 import argparse
 import math
@@ -15,56 +18,24 @@ from collections import Counter
 
 import numpy as np
 
-from madscien.data import BOS, EOS, _fmt, _sig, synth_doc
+from madscien.data import (BOS, EOS, SYNTH_KINDS, _int, angular_problem, bond_problem, combinations_problem,
+                           coulomb_problem, emf_problem, king_problem, synth_problem)
 
-TYPES = {"Two charges": "coulomb", "A coil": "emf", "A skater": "angular", "A diatomic": "bond",
-         "Which carbocation": "goc", "Evaluate the integral": "king", "In how many": "combinations"}
+MAX_SOLUTION_TOKENS = 800       # longer than any solution in or out of the training ranges
 
-
-def problem_type(problem):
-    return next(name for marker, name in TYPES.items() if marker in problem)
-
-
-def in_range_problem(rng):
-    problem, solution = synth_doc(rng).split("\nSolution:", 1)
-    return problem, solution
-
-
-# ---- same text as synth_doc, with numbers outside its ranges
-def _coulomb(rng):
-    a, b, d = int(rng.integers(20, 60)), int(rng.integers(20, 60)), int(rng.integers(10, 20))
-    force = 9e9 * a * 1e-6 * b * 1e-6 / (d * d)
-    return (f"Problem: Two charges {a} uC and {b} uC are {d} m apart. Find the force.",
-            f" F = k q1 q2 / r^2 = 9e9 x {a}e-6 x {b}e-6 / {d}^2 = {_sig(force)} N, repulsive.\n")
-
-
-def _emf(rng):
-    n, dphi, dt = int(rng.integers(100, 400)), int(rng.integers(50, 99)) / 100, int(rng.integers(6, 12))
-    return (f"Problem: A coil of {n} turns sees its flux change by {_fmt(dphi)} Wb in {dt} s. Find the emf.",
-            f" e = -N d(phi)/dt = -{n} x {_fmt(dphi)} / {dt} = {_fmt(-n * dphi / dt)} V.\n")
-
-
-def _bond(rng):
-    nb, na = int(rng.integers(14, 30)), int(rng.integers(14, 30))
-    bo = (nb - na) / 2
-    verdict = "is stable" if bo > 0 else ("does not exist" if bo == 0 else "is unstable")
-    return (f"Problem: A diatomic species has {nb} bonding and {na} antibonding electrons. Find the bond order.",
-            f" bond order = (Nb - Na) / 2 = ({nb} - {na}) / 2 = {_fmt(bo)}, so the species {verdict}.\n")
-
-
-def _combinations(rng):
-    n = int(rng.integers(16, 30))
-    r = int(rng.integers(1, n + 1))
-    return (f"Problem: In how many ways can {r} student(s) be chosen from {n}?",
-            f" Order does not matter, so use combinations: C({n},{r}) = {math.comb(n, r)}.\n")
-
-
-OUT_OF_RANGE = {"coulomb": _coulomb, "emf": _emf, "bond": _bond, "combinations": _combinations}
+OUT_OF_RANGE = {
+    "coulomb": lambda rng: coulomb_problem(_int(rng, 100, 300), _int(rng, 100, 300), _int(rng, 20, 40)),
+    "emf": lambda rng: emf_problem(_int(rng, 1000, 3000), _int(rng, 100, 300), _int(rng, 10, 20)),
+    "angular": lambda rng: angular_problem(_int(rng, 100, 300), _int(rng, 100, 300), _int(rng, 20, 60)),
+    "bond": lambda rng: bond_problem(_int(rng, 100, 400), _int(rng, 100, 400)),
+    "king": lambda rng: king_problem(_int(rng, 100, 300), _int(rng, 400, 600), "e^x"),
+    "combinations": lambda rng: combinations_problem(_int(rng, 21, 26), _int(rng, 2, 19)),
+}
 
 
 def training_stats(data_dir):
-    """Problems in the training set, and the lowest loss the data allows: everything except the problem's
-    random numbers is determined, so its entropy / document length estimates the floor (nats/token)."""
+    """Problems in the training set, and a rough lowest loss: everything except the problem's random
+    numbers is determined, so its entropy / document length estimates the floor (nats/token)."""
     tokens = np.fromfile(os.path.join(data_dir, "train.bin"), dtype=np.uint16)
     text = tokens[tokens < 256].astype(np.uint8).tobytes().decode("utf-8", "replace")
     problems = Counter(line for line in text.split("\n") if line.startswith("Problem:"))
@@ -74,31 +45,32 @@ def training_stats(data_dir):
     return set(problems), floor
 
 
-def evaluate(solve, known, n_per_type=30, n_out_of_range=20, seed=987654):
+def scoring_problems(n_per_type=30, n_out_of_range=20, seed=987654):
+    """[(in_range, type, problem, solution)]: n_per_type from the training part of each type's problem
+    space, n_per_type from the held-out part, and n_out_of_range outside the ranges."""
+    rng = np.random.default_rng(seed)
+    problems = []
+    for name in SYNTH_KINDS:
+        for split in ("train", "val"):
+            if split == "train" or name != "goc":        # goc has no numbers, so nothing is held out
+                problems += [(True, name, *synth_problem(rng, name, split)) for _ in range(n_per_type)]
+    for name, make in OUT_OF_RANGE.items():
+        problems += [(False, name, *make(rng)) for _ in range(n_out_of_range)]
+    return problems
+
+
+def evaluate(solve, known, problems):
     """solve(problem) -> text after 'Solution:'. Returns counts as {group: {type: [correct, total]}}."""
     results = {"seen": {}, "not seen": {}, "out of range": {}}
     wrong = {}
-
-    def score(group, name, problem, solution):
+    for in_range, name, problem, solution in problems:
+        group = "out of range" if not in_range else ("seen" if problem in known else "not seen")
         got = solve(problem)
         row = results[group].setdefault(name, [0, 0])
         row[0] += got == solution
         row[1] += 1
         if got != solution:
             wrong.setdefault((group, name), (problem, solution.strip(), got.strip()))
-
-    rng = np.random.default_rng(seed)
-    done = Counter()
-    while min(done[name] for name in TYPES.values()) < n_per_type:
-        problem, solution = in_range_problem(rng)
-        name = problem_type(problem)
-        if done[name] < n_per_type:
-            done[name] += 1
-            score("seen" if problem in known else "not seen", name, problem, solution)
-    rng = np.random.default_rng(seed + 1)
-    for name, make in OUT_OF_RANGE.items():
-        for _ in range(n_out_of_range):
-            score("out of range", name, *make(rng))
     return results, wrong
 
 
@@ -118,7 +90,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--data_dir", required=True, help="the dataset the checkpoint was trained on")
-    ap.add_argument("--n_per_type", type=int, default=30, help="in-range problems per type")
+    ap.add_argument("--n_per_type", type=int, default=30, help="in-range problems per type and split")
     ap.add_argument("--n_out_of_range", type=int, default=20, help="out-of-range problems per type")
     ap.add_argument("--seed", type=int, default=987654)
     ap.add_argument("--device", default=None)
@@ -136,13 +108,14 @@ def main():
 
     def solve(problem):
         ids = [BOS] + list((problem + "\nSolution:").encode("utf-8"))
-        out = model.generate(torch.tensor([ids], device=device), 260, temperature=0, eos_id=EOS)
+        out = model.generate(torch.tensor([ids], device=device), MAX_SOLUTION_TOKENS, temperature=0, eos_id=EOS)
         return bytes(t for t in out[0].tolist()[len(ids):] if t < 256).decode("utf-8", "replace")
 
     known, floor = training_stats(a.data_dir)
     print(f"{a.ckpt}: iter {ck['iter']} | best val {ck['best_val']:.4f} | "
           f"estimated lowest possible loss {floor:.4f}")
-    print_report(*evaluate(solve, known, a.n_per_type, a.n_out_of_range, a.seed))
+    problems = scoring_problems(a.n_per_type, a.n_out_of_range, a.seed)
+    print_report(*evaluate(solve, known, problems))
 
 
 if __name__ == "__main__":
