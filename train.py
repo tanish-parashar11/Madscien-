@@ -49,6 +49,7 @@ def parse_args():
     p.add_argument("--log_interval", type=int, default=20)
     p.add_argument("--dtype", choices=["float32", "bfloat16", "float16"], default=None)
     p.add_argument("--device", default=None)
+    p.add_argument("--threads", type=int, default=None, help="cap CPU threads (torch.set_num_threads)")
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--compile", action="store_true")
@@ -74,6 +75,8 @@ def estimate_loss(model, ds, a, ctx, device, block_size):
 
 def main():
     a = parse_args()
+    if a.threads:
+        torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
     device = a.device or ("cuda" if torch.cuda.is_available() else "cpu")
     dev_type = "cuda" if device.startswith("cuda") else "cpu"
@@ -86,7 +89,8 @@ def main():
 
     ds = (ChatBinDataset if a.sft else BinDataset)(a.data_dir)
     os.makedirs(a.out_dir, exist_ok=True)
-    ckpt_path = os.path.join(a.out_dir, "ckpt.pt")
+    ckpt_path = os.path.join(a.out_dir, "ckpt.pt")          # best validation loss
+    last_path = os.path.join(a.out_dir, "last.pt")          # most recent eval (used by --resume)
 
     overrides = {k: getattr(a, k) for k in ("n_layer", "d_model", "n_heads", "window", "core_dim",
                                               "keep_k", "flux_loops", "block_size", "ffn_mult", "dropout",
@@ -112,14 +116,16 @@ def main():
     evolver = SelfEvolver(model, optimizer, a.lr, a.min_lr, a.warmup, a.max_iters,
                           grad_clip=a.grad_clip, scaler=scaler, adapt=not a.no_self_adapt)
 
-    it0, best_val = 0, float("inf")
-    if a.resume and os.path.exists(ckpt_path):
-        ck = torch.load(ckpt_path, map_location=device)
+    it0, best_val, resumed = 0, float("inf"), False
+    resume_path = last_path if os.path.exists(last_path) else ckpt_path
+    if a.resume and os.path.exists(resume_path):
+        ck = torch.load(resume_path, map_location=device)
         model.load_state_dict(ck["model"])
         optimizer.load_state_dict(ck["optimizer"])
         evolver.load_state_dict(ck["evolver"])
-        it0, best_val = ck["iter"] + 1, ck["best_val"]
-        print(f"resumed from iter {ck['iter']}")
+        # checkpoints are written at eval time, BEFORE the update of that iteration runs
+        it0, best_val, resumed = ck["iter"], ck["best_val"], True
+        print(f"resumed from {resume_path} at iter {it0}")
 
     print(f"params {model.num_params() / 1e6:.2f}M | cases/problem {cfg.n_cases} | "
           f"receptive field {cfg.receptive_field()} tokens | device {device} | dtype {dtype}")
@@ -127,17 +133,22 @@ def main():
 
     t0 = time.time()
     for it in range(it0, a.max_iters + 1):
-        if it % a.eval_interval == 0:
+        skip_eval = resumed and it == it0                    # already evaluated before the checkpoint
+        if (it % a.eval_interval == 0 or it == a.max_iters) and not skip_eval:
             ev = estimate_loss(run_model, ds, a, ctx, device, cfg.block_size)
             print(f"[eval] iter {it} | train {ev['train']:.4f} | val {ev['val']:.4f} "
                   f"| val ppl {torch.exp(torch.tensor(ev['val'])).item():.2f}")
-            if ev["val"] < best_val and it > 0:
+            is_best = ev["val"] < best_val and (it > 0 or a.max_iters == 0)
+            if is_best:
                 best_val = ev["val"]
-                torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
-                            "evolver": evolver.state_dict(), "cfg": cfg.to_dict(),
-                            "iter": it, "best_val": best_val}, ckpt_path)
-                with open(os.path.join(a.out_dir, "cfg.json"), "w") as f:
-                    json.dump(cfg.to_dict(), f, indent=2)
+            state = {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                     "evolver": evolver.state_dict(), "cfg": cfg.to_dict(),
+                     "iter": it, "best_val": best_val}
+            torch.save(state, last_path)
+            if is_best:
+                torch.save(state, ckpt_path)
+            with open(os.path.join(a.out_dir, "cfg.json"), "w") as f:
+                json.dump(cfg.to_dict(), f, indent=2)
         if it == a.max_iters:
             break
 
@@ -157,7 +168,8 @@ def main():
             aux = (aux_acc / a.grad_accum).mean(0).tolist()
             print(f"iter {it:6d} | ce {ce_acc:.4f} | dL/L {aux[0]:.3f} | fallback {aux[1]:.2%} "
                   f"| survivors {aux[2]:.1f} | BO {aux[3]:.2f} | gnorm {gnorm:.2f} | lr {lr:.2e} "
-                  f"| lam_cons {evolver.lam_cons:.4f} | {(time.time() - t0) / (it - it0 + 1):.2f}s/it")
+                  f"| lam_cons {evolver.lam_cons:.4f} | skipped {evolver.skipped} "
+                  f"| {(time.time() - t0) / (it - it0 + 1):.2f}s/it")
 
 
 if __name__ == "__main__":

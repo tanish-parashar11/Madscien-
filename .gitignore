@@ -1,3 +1,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# local environment
+.venv/
+venv/
+
+# generated datasets and training outputs
+data/
+out*/
+*.pt

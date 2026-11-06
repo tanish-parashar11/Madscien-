@@ -14,7 +14,7 @@ import torch
 from madscien.config import X5Config
 from madscien.evolve import SelfEvolver
 from madscien.model import MadScienLM, physics_loss
-from madscien.x5_core import X5Core, cumtrapz
+from madscien.x5_core import X5Core, cumtrapz, normalize_weights
 
 
 def tiny_cfg(**kw):
@@ -107,6 +107,31 @@ def test_every_parameter_gets_finite_gradient():
         assert torch.isfinite(p.grad).all(), f"non-finite grad for {name}"
 
 
+def test_normalize_weights_exact_forward_bounded_gradient():
+    """Regression: dividing by a near-zero survivor weight sent training gradient norms past 1e10."""
+    w = torch.full((1, 4), 1e-10, dtype=torch.float64, requires_grad=True)
+    out = normalize_weights(w)
+    assert torch.allclose(out, w / (w.sum(-1, keepdim=True) + 1e-9), rtol=1e-12)
+    out[0, 0].backward()
+    assert w.grad.abs().max() < 1e5, f"gradient exploded: {w.grad.abs().max():.2e}"
+
+    normal = torch.tensor([[0.2, 0.3, 0.5]], dtype=torch.float64)
+    assert torch.allclose(normalize_weights(normal), normal, rtol=1e-6)
+
+
+def test_x5_gradients_do_not_reach_earlier_layers():
+    """Regression: gradients through the core stopped the model learning from its input."""
+    torch.manual_seed(0)
+    cfg = tiny_cfg(attn_every=0, ffn_mult=0)
+    block = MadScienLM(cfg).blocks[0].train()
+    x = torch.randn(2, 16, cfg.d_model, requires_grad=True)
+    out, aux = block(x)
+    ((out - x).pow(2).sum() + aux[0]).backward()
+    assert x.grad is None or (x.grad == 0).all()
+    for name in ("q_proj", "x_proj", "out_proj"):
+        assert getattr(block, name).weight.grad.abs().sum() > 0, f"{name} stopped training"
+
+
 def test_grad_checkpoint_matches_plain():
     torch.manual_seed(0)
     cfg = tiny_cfg()
@@ -145,6 +170,16 @@ def test_overfits_a_tiny_batch_with_self_evolver():
     assert last < 0.5 * first, f"loss did not fall enough: {first:.3f} -> {last:.3f}"
 
 
+def test_evolver_ignores_a_non_finite_loss_when_adapting():
+    model = MadScienLM(tiny_cfg())
+    opt = model.configure_optimizers(0.0, 1e-3, (0.9, 0.95), "cpu")
+    evolver = SelfEvolver(model, opt, 1e-3, 1e-4, 1, 10)
+    evolver._observe(2.0, 0.1)
+    evolver._observe(float("nan"), 0.1)
+    evolver._observe(2.0, float("inf"))
+    assert evolver._ema == 2.0 and evolver._updates == 1
+
+
 def test_generate_shapes_and_sampling_modes():
     torch.manual_seed(0)
     cfg = tiny_cfg()
@@ -161,6 +196,31 @@ def test_config_dilations_and_receptive_field():
     cfg = X5Config(block_size=256, window=32, n_layer=6)
     assert [cfg.dilation(i) for i in range(6)] == [1, 2, 4, 8, 1, 2]
     assert cfg.receptive_field() > 31 * 6
+
+
+@pytest.mark.parametrize("preset", ["tiny", "small", "base"])
+def test_hybrid_x5_layers_walk_the_whole_dilation_cycle(preset):
+    """Attention layers must not eat dilation slots: X5 layers get 1, 2, 4, ... in order."""
+    from madscien.config import make_config
+    from madscien.model import X5Block
+    cfg = make_config(preset)
+    model = MadScienLM(cfg)
+    dils = [b.dilation for b in model.blocks if isinstance(b, X5Block)]
+    assert dils == [cfg.dilation(j) for j in range(cfg.n_x5_layers)]
+    assert dils[:3] == [1, 2, 4][:len(dils)]
+
+
+def test_generate_batch_pads_finished_rows_with_eos():
+    torch.manual_seed(0)
+    cfg = tiny_cfg()
+    model = MadScienLM(cfg)
+    idx = torch.randint(0, cfg.vocab_size, (4, 3))
+    eos = 7
+    out = model.generate(idx, 40, temperature=1.5, eos_id=eos)
+    for row in out[:, 3:]:
+        hits = (row == eos).nonzero()
+        if len(hits):
+            assert (row[hits[0, 0]:] == eos).all()        # nothing after a row's first EOS
 
 
 def test_constrained_generate_never_breaks_brackets():

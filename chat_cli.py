@@ -49,16 +49,25 @@ def main():
             history = []
             print("(history cleared)")
             continue
-        if user.startswith("/system "):
-            system, history = user[8:], []
+        if user == "/system" or user.startswith("/system "):
+            text = user[len("/system"):].strip()
+            if not text:
+                print("usage: /system <text>")
+                continue
+            system, history = text, []
             print("(persona set, history cleared)")
             continue
-        if user.startswith("/temp "):
-            temp = float(user[6:])
+        if user == "/temp" or user.startswith("/temp "):
+            try:
+                temp = float(user[len("/temp"):].strip())
+                print(f"(temperature {temp})")
+            except ValueError:
+                print("usage: /temp <number>, e.g. /temp 0.7")
             continue
         history.append({"role": "user", "content": user})
-        msgs = fit_to_context([{"role": "system", "content": system}] + history,
-                              max(64, cfg.block_size - a.max_new_tokens), tok)
+        # The prompt gets most of the context; generate() rolls the cache forward if the reply is long.
+        budget = cfg.block_size - min(a.max_new_tokens, cfg.block_size // 4)
+        msgs = fit_to_context([{"role": "system", "content": system}] + history, budget, tok)
         ids, _ = encode_chat(msgs, tok, add_generation_prompt=True)
         idx = torch.tensor([ids], dtype=torch.long, device=device)
         out = model.generate(idx, a.max_new_tokens, temperature=temp, top_k=a.top_k, top_p=a.top_p,

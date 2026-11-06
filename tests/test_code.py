@@ -2,6 +2,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from madscien.codegen_data import generate_tasks
 from madscien.constraints import DelimiterConstraint
@@ -44,6 +45,24 @@ def test_pass_at_k_known_values():
     assert math.isclose(pass_at_k(10, 5, 1), 0.5)
     assert math.isclose(pass_at_k(10, 5, 2), 1 - math.comb(5, 2) / math.comb(10, 2))
     assert pass_at_k(4, 3, 2) == 1.0
+    with pytest.raises(ValueError):                    # fewer samples than k: undefined, not 1.0
+        pass_at_k(2, 0, 4)
+
+
+def test_eval_skips_pass_at_k_larger_than_samples():
+    from code_eval import evaluate, make_mock_generate
+    tasks = list(generate_tasks(5, seed=4))
+    res = evaluate(make_mock_generate(tasks, 0.0), tasks, n_samples=2, ks=(1, 4), verbose=False)
+    assert res["pass@1"] == 0.0 and "pass@4" not in res
+
+
+def test_heldout_eval_tasks_never_repeat_training_prompts():
+    from madscien.codegen_data import heldout_tasks
+    train = {t.prompt() for t in generate_tasks(3000, 0)}
+    ev = heldout_tasks(100, 12345, train_n_docs=3000, train_seed=0)
+    prompts = [t.prompt() for t in ev]
+    assert len(ev) == 100 and len(set(prompts)) == 100
+    assert not train.intersection(prompts)
 
 
 def _independent_scan(s):

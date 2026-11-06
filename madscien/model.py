@@ -39,11 +39,11 @@ class X5Block(nn.Module):
        -> norm -> out_proj -> residual.   Optional SwiGLU FFN (cfg.ffn_mult > 0).
        cache (dict) = last (window-1)*dilation projected charges/contents, for incremental decoding."""
 
-    def __init__(self, cfg: X5Config, layer_idx: int):
+    def __init__(self, cfg: X5Config, x5_idx: int):
         super().__init__()
         self.cfg = cfg
         H, d = cfg.n_heads, cfg.core_dim
-        self.dilation = cfg.dilation(layer_idx)
+        self.dilation = cfg.dilation(x5_idx)               # index among X5 layers, not all layers
         self.norm1 = RMSNorm(cfg.d_model)
         self.q_proj = nn.Linear(cfg.d_model, H, bias=False)        # word -> charge
         self.x_proj = nn.Linear(cfg.d_model, H * d, bias=False)    # word -> content
@@ -78,7 +78,9 @@ class X5Block(nn.Module):
     def forward(self, x, cache=None):
         B, Tn, _ = x.shape
         H, d = self.cfg.n_heads, self.cfg.core_dim
-        h = self.norm1(x)
+        # Detached: X5 output and weights still train, but gradients through the core must not reach
+        # the embeddings or earlier layers, otherwise the model stops learning from its input.
+        h = self.norm1(x.detach())
         cdt = _fp32_if_half(x).dtype
         q = self.q_proj(h).to(cdt)
         X = self.x_proj(h).to(cdt).view(B, Tn, H, d)
@@ -167,7 +169,7 @@ class MadScienLM(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.tok_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
-        self.blocks = nn.ModuleList([AttnBlock(cfg) if cfg.is_attn_layer(i) else X5Block(cfg, i)
+        self.blocks = nn.ModuleList([AttnBlock(cfg) if cfg.is_attn_layer(i) else X5Block(cfg, cfg.x5_index(i))
                                      for i in range(cfg.n_layer)])
         self.norm_f = RMSNorm(cfg.d_model)
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
@@ -246,6 +248,7 @@ class MadScienLM(nn.Module):
         bs = self.cfg.block_size
         reserve = min(64, max(1, bs // 4))
         caches, cache_len = None, 0
+        done = torch.zeros(idx.size(0), 1, dtype=torch.bool, device=idx.device)
         for _ in range(max_new_tokens):
             if use_cache:
                 if caches is None or cache_len >= bs:        # (re)prefill from the latest tokens
@@ -280,10 +283,13 @@ class MadScienLM(nn.Module):
                     s_logits = s_logits.masked_fill(drop, float("-inf"))
                     logits = torch.full_like(logits, float("-inf")).scatter(1, s_idx, s_logits)
                 nxt = torch.multinomial(torch.softmax(logits, dim=-1), num_samples=1)
+            if eos_id is not None:                       # finished rows keep emitting EOS (padding)
+                nxt = torch.where(done, torch.full_like(nxt, eos_id), nxt)
+                done = done | (nxt == eos_id)
             idx = torch.cat([idx, nxt], dim=1)
             if constraint is not None:
                 constraint.feed(int(nxt.item()))
-            if eos_id is not None and bool((nxt == eos_id).all()):
+            if eos_id is not None and bool(done.all()):
                 break
         self.train(was_training)
         return idx

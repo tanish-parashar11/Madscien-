@@ -236,6 +236,25 @@ def generate_tasks(n, seed=0):
         yield FAMILIES[int(rng.integers(0, len(FAMILIES)))](rng)
 
 
+def heldout_tasks(n, seed, train_n_docs=0, train_seed=0, max_draws=None):
+    """n eval tasks whose prompts are unique and do NOT occur in the training set that
+    generate_tasks(train_n_docs, train_seed) produced (some families have only a few hundred
+    distinct prompts, so plain fresh draws would repeat training documents verbatim)."""
+    seen = {t.prompt() for t in generate_tasks(train_n_docs, train_seed)}
+    out, draws = [], 0
+    max_draws = max_draws or 50 * n
+    rng = np.random.default_rng(seed)
+    while len(out) < n and draws < max_draws:
+        t = FAMILIES[int(rng.integers(0, len(FAMILIES)))](rng)
+        draws += 1
+        if t.prompt() not in seen:
+            seen.add(t.prompt())
+            out.append(t)
+    if len(out) < n:
+        raise RuntimeError(f"only found {len(out)} held-out tasks in {max_draws} draws")
+    return out
+
+
 def code_documents(n, seed=0):
     for t in generate_tasks(n, seed):
         yield t.document()
