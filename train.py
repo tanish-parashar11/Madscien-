@@ -54,6 +54,8 @@ def parse_args():
     p.add_argument("--resume", action="store_true")
     p.add_argument("--compile", action="store_true")
     p.add_argument("--sft", action="store_true", help="chat SFT data: train only on assistant tokens")
+    p.add_argument("--align_docs", action="store_true",
+                   help="start every training window at a document start (pretraining data only)")
     p.add_argument("--init_from", default=None, help="start from a pretrained checkpoint (its config is used)")
     return p.parse_args()
 
@@ -87,7 +89,8 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    ds = (ChatBinDataset if a.sft else BinDataset)(a.data_dir)
+    assert not (a.sft and a.align_docs), "--align_docs is for pretraining data, not --sft"
+    ds = ChatBinDataset(a.data_dir) if a.sft else BinDataset(a.data_dir, align_docs=a.align_docs)
     os.makedirs(a.out_dir, exist_ok=True)
     ckpt_path = os.path.join(a.out_dir, "ckpt.pt")          # best validation loss
     last_path = os.path.join(a.out_dir, "last.pt")          # most recent eval (used by --resume)

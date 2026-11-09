@@ -225,18 +225,36 @@ def build_bins(docs, out_dir, val_frac=0.01, val_docs=None):
 
 
 class BinDataset:
-    def __init__(self, data_dir):
+    """align_docs=True starts every window at a document's BOS, so the model always sees the start of the
+    document it is predicting (for example the problem it is solving). Tokens more than block_size into a
+    document are then never trained on, so use a block_size that fits whole documents."""
+
+    def __init__(self, data_dir, align_docs=False):
         self.data = {s: np.memmap(os.path.join(data_dir, f"{s}.bin"), dtype=np.uint16, mode="r")
                      for s in ("train", "val")}
         with open(os.path.join(data_dir, "meta.json")) as f:
             self.meta = json.load(f)
+        self.align_docs = align_docs
+        self._starts = {}
+
+    def doc_starts(self, split, block_size):
+        """BOS positions that leave room for a full window."""
+        if split not in self._starts:
+            self._starts[split] = np.flatnonzero(np.asarray(self.data[split]) == BOS)
+        starts = self._starts[split]
+        return starts[starts < len(self.data[split]) - block_size - 1]
 
     def get_batch(self, split, batch_size, block_size, device, generator=None):
         import torch
         d = self.data[split]
         hi = len(d) - block_size - 1
         assert hi > 0, f"{split}.bin has only {len(d)} tokens, need > block_size+1"
-        ix = torch.randint(hi, (batch_size,), generator=generator)
+        if self.align_docs:
+            starts = self.doc_starts(split, block_size)
+            assert len(starts), f"{split}.bin has no document start with a full window after it"
+            ix = starts[torch.randint(len(starts), (batch_size,), generator=generator).numpy()]
+        else:
+            ix = torch.randint(hi, (batch_size,), generator=generator)
         x = torch.stack([torch.from_numpy(d[i:i + block_size].astype(np.int64)) for i in ix])
         y = torch.stack([torch.from_numpy(d[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix])
         if str(device).startswith("cuda"):

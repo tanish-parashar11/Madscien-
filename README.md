@@ -32,7 +32,13 @@ The synthetic solutions work the arithmetic out step by step, and about 10% of t
 held out of training to form the validation set, so `best val` measures problems the model never saw.
 Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
 exactly are cut off at 3 decimals and marked `...`, not rounded. Some solutions are longer than the
-`small` preset's 256-token context; each step only depends on the recent text.
+`small` preset's 256-token context, so train them with whole problems in view:
+```bash
+python train.py --data_dir data/synth_steps --out_dir out_aligned --preset small --block_size 512 --batch_size 6 --align_docs --max_iters 20000
+```
+`--align_docs` starts every training window at the beginning of a problem. Without it, most windows that
+reach the later steps of a long solution have lost the problem's numbers, so the model learns to guess
+them instead of copying them. On an 8 GB GPU, `--block_size 512 --batch_size 6` uses about 6.5 GB.
 
 ## Your algorithm -> code
 

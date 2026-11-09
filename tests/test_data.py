@@ -114,3 +114,22 @@ def test_built_dataset_keeps_validation_problems_out_of_training(tmp_path):
     train, val = problems(ds.data["train"]), problems(ds.data["val"])
     assert val and not train & val
     assert synth_doc(np.random.default_rng(0)).split("\nSolution: ", 1)[1]    # format chat_data.py splits on
+
+
+def test_aligned_windows_start_at_a_document_and_hold_its_whole_problem(tmp_path):
+    import torch
+
+    from madscien.data import BOS
+    build_bins(synthetic_documents(300, 0), tmp_path, val_docs=synthetic_documents(30, 1, split="val"))
+    ds = BinDataset(str(tmp_path), align_docs=True)
+    g = torch.Generator().manual_seed(0)
+    for split in ("train", "val"):
+        x, y = ds.get_batch(split, 64, 128, "cpu", generator=g)
+        assert (x[:, 0] == BOS).all()
+        assert torch.equal(x[:, 1:], y[:, :-1])                    # targets are still the next tokens
+        text = bytes(int(t) for t in x[0, 1:] if t < 256).decode()
+        assert text.startswith("Problem: ")
+    starts = ds.doc_starts("train", 128)
+    assert len(starts) and starts.max() < len(ds.data["train"]) - 129
+    x, _ = BinDataset(str(tmp_path)).get_batch("train", 64, 128, "cpu", generator=g)
+    assert not (x[:, 0] == BOS).all()                               # the default still samples anywhere
