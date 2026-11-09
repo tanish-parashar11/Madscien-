@@ -54,28 +54,48 @@ def _mul_steps(a, b):
     return f"{a} x {b} = {terms} = {values} = {a * b}"
 
 
+def _sub_steps(a, b):
+    """'a - b' split over the digits of b; a negative result is worked out as -(b - a)."""
+    if a < b:
+        return f"{a} - {b} = -({b} - {a}), {_sub_steps(b, a)}, so {a} - {b} = {a - b}"
+    parts = [int(d) * 10 ** i for i, d in enumerate(reversed(str(b))) if d != "0"][::-1]
+    if len(parts) < 2:
+        return f"{a} - {b} = {a - b}"
+    chain, value = [f"{a} - " + " - ".join(map(str, parts))], a
+    for i, p in enumerate(parts[:-1]):
+        value -= p
+        chain.append(" - ".join([str(value)] + [str(q) for q in parts[i + 1:]]))
+    return f"{a} - {b} = " + " = ".join(chain) + f" = {a - b}"
+
+
+def _division_step(cur, den):
+    q = cur // den
+    return f"{cur} / {den} = {q}, {cur} - {q * den} = {cur - q * den}"
+
+
 def _long_division(num, den, places=3):
-    """Digit-by-digit division. Returns (steps, value); a value cut off at `places` ends in '...'."""
+    """Digit-by-digit division, each remainder worked out as a subtraction. Returns (steps, value);
+    a value cut off at `places` ends in '...'."""
     steps, whole, rem = [], "", 0
     for digit in str(num):
         cur = rem * 10 + int(digit)
         rem = cur % den
         if whole or cur >= den:
             whole += str(cur // den)
-            steps.append(f"{cur} / {den} = {cur // den} r {rem}")
+            steps.append(_division_step(cur, den))
     decimals = ""
     while rem and len(decimals) < places:
         cur = rem * 10
         rem = cur % den
         decimals += str(cur // den)
-        steps.append(f"{cur} / {den} = {cur // den} r {rem}")
+        steps.append(_division_step(cur, den))
     value = (whole or "0") + (f".{decimals}" if decimals else "") + ("..." if rem else "")
     return ", ".join(steps), value
 
 
 def coulomb_problem(q1, q2, r):
     product = 9 * q1
-    steps, force = _long_division(product * q2, r * r)
+    steps, force = _long_division(product * q2, r * r, places=2)    # 3 would not fit in 512 tokens
     return (f"Problem: Two charges {q1} uC and {q2} uC are {r} m apart. Find the force.",
             f" F = k q1 q2 / r^2 = 9e9 x {q1}e-6 x {q2}e-6 / {r}^2 N = 9 x {q1} x {q2} / {r}^2 mN. "
             f"{_mul_steps(9, q1)}. {_mul_steps(product, q2)}. {_mul_steps(r, r)}. {steps}. "
@@ -102,8 +122,8 @@ def bond_problem(nb, na):
     diff = nb - na
     verdict = "is stable" if diff > 0 else ("does not exist" if diff == 0 else "is unstable")
     return (f"Problem: A diatomic species has {nb} bonding and {na} antibonding electrons. Find the bond order.",
-            f" bond order = (Nb - Na) / 2 = ({nb} - {na}) / 2 = {diff} / 2 = {_fmt(diff / 2)}, "
-            f"so the species {verdict}.\n")
+            f" bond order = (Nb - Na) / 2 = ({nb} - {na}) / 2. {_sub_steps(nb, na)}. "
+            f"bond order = {diff} / 2 = {_fmt(diff / 2)}, so the species {verdict}.\n")
 
 
 def goc_problem(options):
@@ -117,7 +137,7 @@ def goc_problem(options):
 def king_problem(a, b, f):
     return (f"Problem: Evaluate the integral from {a} to {b} of f(x) / (f(x) + f({a + b} - x)) dx, f(x) = {f}.",
             f" By the King property I = integral of f({a + b} - x) / (f({a + b} - x) + f(x)) dx. "
-            f"Adding both gives 2I = integral of 1 dx = {b} - {a} = {b - a}, "
+            f"Adding both gives 2I = integral of 1 dx = {b} - {a}. {_sub_steps(b, a)}, "
             f"so I = {b - a} / 2 = {_fmt((b - a) / 2)}.\n")
 
 

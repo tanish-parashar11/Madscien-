@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 
 from eval_synth import OUT_OF_RANGE
-from madscien.data import (BinDataset, SYNTH_KINDS, _long_division, _mul_steps, build_bins, is_held_out,
-                           synth_doc, synth_problem, synthetic_documents)
+from madscien.data import (BinDataset, SYNTH_KINDS, _long_division, _mul_steps, _sub_steps, build_bins,
+                           is_held_out, synth_doc, synth_problem, synthetic_documents)
 
 
 def truncated(value, places=3):
@@ -23,9 +23,14 @@ def truncated(value, places=3):
 
 
 def check_steps(solution):
-    """Recompute every multiplication, sum and division written in a solution."""
-    for a, b, q, r in re.findall(r"(\d+) / (\d+) = (\d+) r (\d+)", solution):
-        assert int(a) == int(b) * int(q) + int(r) and int(r) < int(b), solution
+    """Recompute every multiplication, sum, subtraction and division written in a solution."""
+    assert " r " not in solution, solution                          # remainders are worked out now
+    for a, b, q, a2, p, r in re.findall(r"(\d+) / (\d+) = (\d+), (\d+) - (\d+) = (\d+)", solution):
+        a, b, q, a2, p, r = map(int, (a, b, q, a2, p, r))
+        assert a == a2 and p == q * b and r == a - p and 0 <= r < b, solution
+    for chain in re.findall(r"\d+(?: - \d+)+(?: = \d+(?: - \d+)*)+", solution):
+        values = [int(t[0]) - sum(map(int, t[1:])) for t in (part.split(" - ") for part in chain.split(" = "))]
+        assert len(set(values)) == 1, chain
     for chain in re.findall(r"\d+ x \d+(?: = [\d x+]+)+", solution):
         values = [sum(int(t.split(" x ")[0]) * int(t.split(" x ")[1]) if " x " in t else int(t)
                       for t in part.split(" + ")) for part in chain.split(" = ")]
@@ -58,7 +63,7 @@ def test_final_answers_are_correct():
             assert problem.startswith("Problem: ") and solution.startswith(" ") and solution.endswith(".\n")
             if "coulomb" in name:
                 q1, q2, r = map(int, re.findall(r"(\d+) uC and (\d+) uC are (\d+) m", problem)[0])
-                assert f"F = {truncated(Fraction(9 * q1 * q2, r * r))} mN" in solution
+                assert f"F = {truncated(Fraction(9 * q1 * q2, r * r), places=2)} mN" in solution
             elif "emf" in name:
                 n, dphi, dt = re.findall(r"of (\d+) turns .* by ([\d.]+) Wb in (\d+) s", problem)[0]
                 assert f"e = -{truncated(int(n) * Fraction(dphi) / int(dt))} V" in solution
@@ -133,3 +138,12 @@ def test_aligned_windows_start_at_a_document_and_hold_its_whole_problem(tmp_path
     assert len(starts) and starts.max() < len(ds.data["train"]) - 129
     x, _ = BinDataset(str(tmp_path)).get_batch("train", 64, 128, "cpu", generator=g)
     assert not (x[:, 0] == BOS).all()                               # the default still samples anywhere
+
+
+@pytest.mark.parametrize("a,b", [(78, 29), (5, 14), (35, 36), (101, 44), (411, 210), (7, 7), (60, 0), (290, 270)])
+def test_sub_steps_end_in_the_difference(a, b):
+    text = _sub_steps(a, b)
+    assert text.startswith(f"{a} - {b} = ") and text.endswith(f" = {a - b}")
+    check_steps(text)
+    if a < b:
+        assert f"{b} - {a} = " in text                             # the borrow is worked the other way round

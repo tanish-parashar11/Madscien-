@@ -31,10 +31,12 @@ Only the last two test more than recall: a low loss can still mean 0% out of ran
 The synthetic solutions work the arithmetic out step by step, and about 10% of the numeric problems are
 held out of training to form the validation set, so `best val` measures problems the model never saw.
 Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
-exactly are cut off at 3 decimals and marked `...`, not rounded. Some solutions are longer than the
-`small` preset's 256-token context, so train them with whole problems in view:
+exactly are cut off at 3 decimals (2 for Coulomb, to fit 512 tokens) and marked `...`, not rounded.
+Subtractions are written out too, including the one inside every long-division remainder.
+Many solutions are longer than the `small` preset's 256-token context (all fit in 512), so train them with
+whole problems in view:
 ```bash
-python train.py --data_dir data/synth_steps --out_dir out_aligned --preset small --block_size 512 --batch_size 6 --align_docs --max_iters 20000
+python train.py --data_dir data/synth --preset small --block_size 512 --batch_size 6 --align_docs --max_iters 20000
 ```
 `--align_docs` starts every training window at the beginning of a problem. Without it, most windows that
 reach the later steps of a long solution have lost the problem's numbers, so the model learns to guess
