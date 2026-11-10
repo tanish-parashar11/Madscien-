@@ -18,18 +18,25 @@ from collections import Counter
 
 import numpy as np
 
-from madscien.data import (BOS, EOS, SYNTH_KINDS, _int, angular_problem, bond_problem, combinations_problem,
-                           coulomb_problem, emf_problem, king_problem, synth_problem)
+from madscien.data import (BOS, EOS, MAX_COMBINATIONS_N, SYNTH_KINDS, _int, angular_problem, bond_problem,
+                           combinations_problem, coulomb_problem, emf_problem, king_problem, synth_problem)
 
-MAX_SOLUTION_TOKENS = 800       # longer than any solution in or out of the training ranges
+MAX_SOLUTION_TOKENS = 1000      # longer than any solution in or out of the training ranges
 
+
+def _digits(rng, n):
+    return _int(rng, 10 ** (n - 1), 10 ** n - 1)
+
+
+# Every number has one digit more than training ever uses (combinations: a larger n).
 OUT_OF_RANGE = {
-    "coulomb": lambda rng: coulomb_problem(_int(rng, 100, 300), _int(rng, 100, 300), _int(rng, 20, 40)),
-    "emf": lambda rng: emf_problem(_int(rng, 1000, 3000), _int(rng, 100, 300), _int(rng, 10, 20)),
-    "angular": lambda rng: angular_problem(_int(rng, 100, 300), _int(rng, 100, 300), _int(rng, 20, 60)),
-    "bond": lambda rng: bond_problem(_int(rng, 100, 400), _int(rng, 100, 400)),
-    "king": lambda rng: king_problem(_int(rng, 100, 300), _int(rng, 400, 600), "e^x"),
-    "combinations": lambda rng: combinations_problem(_int(rng, 21, 26), _int(rng, 2, 19)),
+    "coulomb": lambda rng: coulomb_problem(_digits(rng, 4), _digits(rng, 4), _digits(rng, 3)),
+    "emf": lambda rng: emf_problem(_digits(rng, 5), _digits(rng, 4), _digits(rng, 3)),
+    "angular": lambda rng: angular_problem(_digits(rng, 4), _digits(rng, 4), _digits(rng, 3)),
+    "bond": lambda rng: bond_problem(_digits(rng, 4), _digits(rng, 4)),
+    "king": lambda rng: king_problem(*sorted((_digits(rng, 4), _digits(rng, 4))), "e^x"),
+    "combinations": lambda rng: (lambda n: combinations_problem(n, _int(rng, 2, n - 2)))(
+        _int(rng, MAX_COMBINATIONS_N + 1, 30)),
 }
 
 

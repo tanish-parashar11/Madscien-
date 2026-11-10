@@ -1,8 +1,11 @@
 """Scorer checks with mock solvers: no model or GPU needed."""
+import re
+from collections import Counter
+
 import numpy as np
 
 from eval_synth import MAX_SOLUTION_TOKENS, OUT_OF_RANGE, evaluate, scoring_problems
-from madscien.data import SYNTH_KINDS, is_held_out
+from madscien.data import MAX_DOC_TOKENS, SYNTH_KINDS, is_held_out
 
 
 def totals(rows):
@@ -37,9 +40,36 @@ def test_problem_groups_keep_their_promises():
     assert sum(is_held_out(p) for in_range, name, p, _ in problems if in_range) == 20 * (len(SYNTH_KINDS) - 1)
 
 
-def test_generation_limit_covers_the_longest_solutions():
+def test_generation_limit_and_context_cover_the_longest_solutions():
     rng = np.random.default_rng(0)
     for make in OUT_OF_RANGE.values():
         for _ in range(500):
-            _, solution = make(rng)
+            problem, solution = make(rng)
             assert len(solution) + 1 < MAX_SOLUTION_TOKENS
+            assert doc_tokens(problem, solution) <= MAX_DOC_TOKENS     # the problem stays in view
+
+
+def doc_tokens(problem, solution):
+    return len(f"{problem}\nSolution:{solution}".encode()) + 2           # + BOS and EOS
+
+
+def test_training_documents_fit_the_recommended_context():
+    rng = np.random.default_rng(1)
+    for make in SYNTH_KINDS.values():
+        for _ in range(2000):
+            assert doc_tokens(*make(rng)) <= MAX_DOC_TOKENS
+
+
+def test_out_of_range_numbers_are_longer_than_any_in_training():
+    rng = np.random.default_rng(2)
+
+    def longest(make):
+        return max(len(n) for _ in range(3000) for n in re.findall(r"\d+", make(rng)[0]))
+
+    for name, make in OUT_OF_RANGE.items():
+        if name != "combinations":                           # combinations: larger n, more steps
+            assert longest(make) > longest(SYNTH_KINDS[name]), name
+    assert longest(SYNTH_KINDS["coulomb"]) == 3 and longest(SYNTH_KINDS["emf"]) == 4
+    for name in ("bond", "king"):                            # every length up to the longest is common
+        lengths = Counter(len(n) for _ in range(3000) for n in re.findall(r"\d+", SYNTH_KINDS[name](rng)[0])[:2])
+        assert min(lengths[d] for d in (1, 2, 3)) > 0.2 * sum(lengths.values()), (name, lengths)

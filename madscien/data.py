@@ -95,7 +95,7 @@ def _long_division(num, den, places=3):
 
 def coulomb_problem(q1, q2, r):
     product = 9 * q1
-    steps, force = _long_division(product * q2, r * r, places=2)    # 3 would not fit in 512 tokens
+    steps, force = _long_division(product * q2, r * r, places=2)    # keeps the longest solutions short
     return (f"Problem: Two charges {q1} uC and {q2} uC are {r} m apart. Find the force.",
             f" F = k q1 q2 / r^2 = 9e9 x {q1}e-6 x {q2}e-6 / {r}^2 N = 9 x {q1} x {q2} / {r}^2 mN. "
             f"{_mul_steps(9, q1)}. {_mul_steps(product, q2)}. {_mul_steps(r, r)}. {steps}. "
@@ -159,28 +159,51 @@ def _int(rng, lo, hi):
     return int(rng.integers(lo, hi + 1))
 
 
+def _num(rng, max_digits, lo=1):
+    """A number of 1 to max_digits digits, each length equally likely, so long numbers are as common as
+    short ones and the model learns to copy numbers of every length it trains on."""
+    digits = _int(rng, 1, max_digits)
+    return _int(rng, max(lo, 10 ** (digits - 1)) if digits > 1 else lo, 10 ** digits - 1)
+
+
 def _goc_options(rng):
     names = ["primary", "secondary", "tertiary"]
     return [names[i] for i in rng.permutation(3)[: _int(rng, 2, 3)]]
 
 
+def _king_limits(rng, max_digits):
+    while True:
+        a, b = sorted((_num(rng, max_digits, lo=0), _num(rng, max_digits, lo=0)))
+        if a < b:
+            return a, b
+
+
+def _draw_coulomb(rng):
+    while True:
+        q1, q2, r = _num(rng, 3), _num(rng, 3), _num(rng, 2)
+        if 9 * q1 * q2 >= r * r:                    # at least 1 mN, so 2 decimals never show 0.00...
+            return coulomb_problem(q1, q2, r)
+
+
 def _draw_king(rng):
-    a = _int(rng, 0, 60)
-    return king_problem(a, a + _int(rng, 1, 60), ["e^x", "x^2 + 1", "2^x"][_int(rng, 0, 2)])
+    return king_problem(*_king_limits(rng, 3), ["e^x", "x^2 + 1", "2^x"][_int(rng, 0, 2)])
 
 
 def _draw_combinations(rng):
-    n = _int(rng, 5, 20)
+    n = _int(rng, 5, MAX_COMBINATIONS_N)
     return combinations_problem(n, _int(rng, 1, n))
 
 
-# Training number ranges. Topics mirror the algorithm: electrostatics, EMI, angular momentum,
-# MOT bond order, GOC stability, King property, P&C.
+MAX_COMBINATIONS_N = 26
+MAX_DOC_TOKENS = 1024           # every training document fits in --block_size 1024
+
+# Training number ranges, as the most digits per number. Topics mirror the algorithm: electrostatics, EMI,
+# angular momentum, MOT bond order, GOC stability, King property, P&C.
 SYNTH_KINDS = {
-    "coulomb": lambda rng: coulomb_problem(_int(rng, 1, 99), _int(rng, 1, 99), _int(rng, 1, 19)),
-    "emf": lambda rng: emf_problem(_int(rng, 10, 999), _int(rng, 1, 99), _int(rng, 1, 9)),
-    "angular": lambda rng: angular_problem(_int(rng, 1, 99), _int(rng, 1, 99), _int(rng, 1, 19)),
-    "bond": lambda rng: bond_problem(_int(rng, 2, 60), _int(rng, 0, 60)),
+    "coulomb": _draw_coulomb,
+    "emf": lambda rng: emf_problem(_num(rng, 4), _num(rng, 3), _num(rng, 2)),
+    "angular": lambda rng: angular_problem(_num(rng, 3), _num(rng, 3), _num(rng, 2)),
+    "bond": lambda rng: bond_problem(_num(rng, 3, lo=2), _num(rng, 3, lo=0)),
     "goc": lambda rng: goc_problem(_goc_options(rng)),
     "king": _draw_king,
     "combinations": _draw_combinations,
