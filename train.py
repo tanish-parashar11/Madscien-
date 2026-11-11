@@ -27,7 +27,8 @@ def parse_args():
     p.add_argument("--preset", choices=list(PRESETS), default="tiny")
     # model overrides
     for name in ("n_layer", "d_model", "n_heads", "window", "core_dim", "keep_k", "flux_loops",
-                 "block_size", "ffn_mult", "attn_every", "attn_heads", "attn_kv_heads"):
+                 "block_size", "ffn_mult", "attn_every", "attn_heads", "attn_kv_heads", "digit_positions",
+                 "digit_offset"):
         p.add_argument(f"--{name}", type=int, default=None)
     p.add_argument("--dropout", type=float, default=None)
     p.add_argument("--grad_checkpoint", action="store_true")

@@ -25,6 +25,12 @@ class X5Config:
     attn_ffn_mult: int = 4
     rope_base: float = 10000.0
 
+    # ---- digit positions ("Abacus"-style): each digit token also gets an embedding of its place
+    # inside its number (1st, 2nd, ... digit). In training every place is shifted by a random
+    # 0..digit_offset per sequence, so places past the longest training number are trained too.
+    digit_positions: int = 0         # size of the place table (0 = off)
+    digit_offset: int = 0            # largest random shift used in training
+
     # ---- the algorithm (Steps 1-6) - same names/defaults as the numpy reference
     window: int = 32                 # one "problem" = the last `window` tokens (causal)
     dilation_cycle: bool = True      # l-th X5 layer looks at every 2^(l mod c)-th token
@@ -57,6 +63,8 @@ class X5Config:
             assert self.attn_heads % self.attn_kv_heads == 0, "attn_heads must divide by attn_kv_heads"
             assert (self.d_model // self.attn_heads) % 2 == 0, "RoPE needs an even head dim"
             assert self.attn_ffn_mult >= 1
+        assert self.digit_positions == 0 or self.digit_positions > self.digit_offset + 1, \
+            "digit_positions must leave room for places beyond the largest offset"
         assert self.n_x5_layers >= 1, "need at least one X5 layer (attn_every=1 would remove all)"
 
     # ---- derived

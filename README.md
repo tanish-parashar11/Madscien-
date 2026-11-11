@@ -39,8 +39,16 @@ digit more than training ever does.
 Solutions run up to about 680 tokens in training and 820 out of range, longer than the `small` preset's
 256-token context. Train with whole problems in view:
 ```bash
-python train.py --data_dir data/synth --preset small --block_size 1024 --batch_size 3 --align_docs --max_iters 20000
+python train.py --data_dir data/synth --preset small --block_size 1024 --batch_size 3 --align_docs \
+    --digit_positions 32 --digit_offset 16 --max_iters 20000
 ```
+`--digit_positions 32` gives every digit an extra embedding for its place inside its number (1st, 2nd,
+3rd digit ...), like the "Abacus" embeddings from published research. Training shifts every place by a
+random 0 to `--digit_offset` per sequence, so the embeddings for places beyond the longest training number
+get trained too. Without this, a model trained on numbers of up to 3 digits cuts 4-digit numbers down to
+3 when it copies them. It is off by default, so older checkpoints still load and run as before. During
+generation, if the context overflows and the cache is rebuilt inside a number, that number's places
+restart at 1.
 `--align_docs` starts every training window at the beginning of a problem. Without it, most windows that
 reach the later steps of a long solution have lost the problem's numbers, so the model learns to guess
 them instead of copying them. The scorer uses the checkpoint's own context, so a 1024-token checkpoint also

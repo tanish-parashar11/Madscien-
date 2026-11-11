@@ -12,6 +12,22 @@ from .config import X5Config
 from .x5_core import X5Core
 
 
+DIGIT_0, DIGIT_9 = ord("0"), ord("9")          # byte tokenizer: a token id is its byte
+
+
+def digit_places(idx, run_before=None):
+    """Place of every token inside its run of digits: 1 for the first digit of a number, 2 for the
+    second, ...; 0 for every other token. run_before (B,) = digits already in a run just before idx,
+    so cached decoding can continue a number across calls."""
+    B, T = idx.shape
+    is_digit = (idx >= DIGIT_0) & (idx <= DIGIT_9)
+    t = torch.arange(T, device=idx.device).expand(B, T)
+    start = -1 if run_before is None else (-1 - run_before).view(B, 1)
+    last_other = torch.where(is_digit, torch.as_tensor(start, device=idx.device).expand(B, T), t)
+    last_other = torch.cummax(last_other, dim=1).values
+    return torch.where(is_digit, t - last_other, torch.zeros_like(t))
+
+
 class LMOutput(NamedTuple):
     logits: torch.Tensor
     loss: Optional[torch.Tensor]     # plain cross-entropy (ignore_index = -100)
@@ -169,6 +185,7 @@ class MadScienLM(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.tok_emb = nn.Embedding(cfg.vocab_size, cfg.d_model)
+        self.digit_emb = nn.Embedding(cfg.digit_positions, cfg.d_model) if cfg.digit_positions else None
         self.blocks = nn.ModuleList([AttnBlock(cfg) if cfg.is_attn_layer(i) else X5Block(cfg, cfg.x5_index(i))
                                      for i in range(cfg.n_layer)])
         self.norm_f = RMSNorm(cfg.d_model)
@@ -195,14 +212,29 @@ class MadScienLM(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
     def new_cache(self):
-        """One dict per layer. Pass to forward(): first call = prefill (any length), then 1 token at a time."""
-        return [dict() for _ in self.blocks]
+        """One dict per layer, plus one for the model's own state (the digit run in progress).
+        Pass to forward(): first call = prefill (any length), then 1 token at a time."""
+        return [dict() for _ in self.blocks] + [dict()]
+
+    def _embed(self, idx, caches):
+        x = self.tok_emb(idx)
+        if self.digit_emb is None:
+            return x
+        state = None if caches is None else caches[-1]
+        places = digit_places(idx, None if state is None else state.get("run"))
+        if state is not None:
+            state["run"] = places[:, -1]
+        if self.training and self.cfg.digit_offset:
+            shift = torch.randint(0, self.cfg.digit_offset + 1, (idx.size(0), 1), device=idx.device)
+            places = torch.where(places > 0, places + shift, places)
+        is_digit = (places > 0).unsqueeze(-1).to(x.dtype)
+        return x + self.digit_emb(places.clamp(max=self.cfg.digit_positions - 1)) * is_digit
 
     def forward(self, idx, targets=None, last_only=False, caches=None):
         B, T = idx.shape
         if caches is None:
             assert T <= self.cfg.block_size, f"sequence {T} > block_size {self.cfg.block_size}"
-        x = self.tok_emb(idx)
+        x = self._embed(idx, caches)
         auxs = []
         for i, blk in enumerate(self.blocks):
             if caches is None and self.cfg.grad_checkpoint and self.training and torch.is_grad_enabled():
