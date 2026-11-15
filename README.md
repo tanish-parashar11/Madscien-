@@ -27,6 +27,13 @@ python eval_synth.py --ckpt out/ckpt.pt --data_dir data/synth
 ```
 It reports problems seen in training, problems not seen, and numbers outside the training ranges.
 Only the last two test more than recall: a low loss can still mean 0% out of range.
+Each group gets three scores:
+- **exact:** the whole solution is right. One slip anywhere fails the problem.
+- **copied:** every number in the problem appears whole in the solution.
+- **steps:** written steps that are right given their own inputs.
+
+The last two show progress the exact score hides, for example a model that now copies 4-digit numbers
+but still slips in one long multiplication. The tests run the same step check on every training solution.
 
 The synthetic solutions work the arithmetic out step by step, and about 10% of the numeric problems are
 held out of training to form the validation set, so `best val` measures problems the model never saw.

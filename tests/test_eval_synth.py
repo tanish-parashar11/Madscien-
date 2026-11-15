@@ -4,7 +4,8 @@ from collections import Counter
 
 import numpy as np
 
-from eval_synth import MAX_SOLUTION_TOKENS, OUT_OF_RANGE, evaluate, scoring_problems
+from eval_synth import (MAX_SOLUTION_TOKENS, OUT_OF_RANGE, evaluate, numbers_copied, scoring_problems,
+                        step_checks)
 from madscien.data import MAX_DOC_TOKENS, SYNTH_KINDS, is_held_out
 
 
@@ -73,3 +74,30 @@ def test_out_of_range_numbers_are_longer_than_any_in_training():
     for name in ("bond", "king"):                            # every length up to the longest is common
         lengths = Counter(len(n) for _ in range(3000) for n in re.findall(r"\d+", SYNTH_KINDS[name](rng)[0])[:2])
         assert min(lengths[d] for d in (1, 2, 3)) > 0.2 * sum(lengths.values()), (name, lengths)
+
+
+def test_partial_scores_on_real_model_mistakes():
+    # from scored checkpoints: a 4-digit charge cut to 3 digits, and a wrong long-division step
+    problem = "Problem: Two charges 5858 uC and 2453 uC are 590 m apart. Find the force."
+    assert numbers_copied(problem, " F = 9e9 x 5858e-6 x 2453e-6 / 590^2 N = 9 x 5858 x 2453 / 590^2 mN.")
+    assert not numbers_copied(problem, " F = 9e9 x 585e-6 x 245e-6 / 590^2 N.")
+    assert not numbers_copied(problem, " F = 9e9 x 5858e-6 x 2453e-6 / 59^2 N.")
+    assert not numbers_copied(problem, " F = 9e9 x 58580e-6 x 2453e-6 / 590^2 N.")      # run on
+    assert numbers_copied("Problem: flux change by 2.89 Wb in 2 s.", " -9997 x 2.89 / 2")
+    assert not numbers_copied("Problem: flux change by 2.89 Wb in 2 s.", " -9997 x 2.8 / 2")
+    got = ("1156 x 9 = 10404. 10040 / 1156 = 9, 10040 - 10404 = 936, 9360 / 1156 = 8, 9360 - 9248 = 112. "
+           "7200 + 560 + 40 = 7700. 8 x 975 = 8 x 900 + 8 x 70 + 8 x 5 = 7200 + 560 + 40 = 7700. 12 x = 5")
+    # division and subtraction steps: one wrong, one right each; "1156 x 9" right; "8 x 975" wrong in its sum
+    assert sorted(step_checks(got)) == [False, False, False, True, True, True]
+
+
+def test_scorer_counts_partial_scores():
+    problems = scoring_problems(2, 2, seed=4)
+    key = {p: s for _, _, p, s in problems}
+    results, _ = evaluate(key.__getitem__, set(), problems)
+    for rows in results.values():
+        for c, t, copied, right, written in rows.values():
+            assert c == t == copied and right == written
+    assert sum(r[4] for rows in results.values() for r in rows.values()) > 100
+    results, _ = evaluate(lambda p: "no steps here", set(), problems)
+    assert all(r[2] == r[3] == r[4] == 0 for name, r in results["out of range"].items())

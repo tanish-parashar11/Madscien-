@@ -6,7 +6,7 @@ from fractions import Fraction
 import numpy as np
 import pytest
 
-from eval_synth import OUT_OF_RANGE
+from eval_synth import OUT_OF_RANGE, step_checks
 from madscien.data import (BinDataset, SYNTH_KINDS, _long_division, _mul_steps, _sub_steps, build_bins,
                            is_held_out, synth_doc, synth_problem, synthetic_documents)
 
@@ -25,16 +25,7 @@ def truncated(value, places=3):
 def check_steps(solution):
     """Recompute every multiplication, sum, subtraction and division written in a solution."""
     assert " r " not in solution, solution                          # remainders are worked out now
-    for a, b, q, a2, p, r in re.findall(r"(\d+) / (\d+) = (\d+), (\d+) - (\d+) = (\d+)", solution):
-        a, b, q, a2, p, r = map(int, (a, b, q, a2, p, r))
-        assert a == a2 and p == q * b and r == a - p and 0 <= r < b, solution
-    for chain in re.findall(r"\d+(?: - \d+)+(?: = \d+(?: - \d+)*)+", solution):
-        values = [int(t[0]) - sum(map(int, t[1:])) for t in (part.split(" - ") for part in chain.split(" = "))]
-        assert len(set(values)) == 1, chain
-    for chain in re.findall(r"\d+ x \d+(?: = [\d x+]+)+", solution):
-        values = [sum(int(t.split(" x ")[0]) * int(t.split(" x ")[1]) if " x " in t else int(t)
-                      for t in part.split(" + ")) for part in chain.split(" = ")]
-        assert len(set(values)) == 1, chain
+    assert all(step_checks(solution)), solution                     # the scorer's own step check
 
 
 @pytest.mark.parametrize("a,b", [(46, 52), (9, 7), (813, 9), (120, 305), (7, 100), (5, 0)])

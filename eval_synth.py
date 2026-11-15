@@ -8,12 +8,19 @@ Loss alone cannot separate recall from skill, so the report splits three cases:
   not seen      in the training number ranges, but not in the training set
   out of range  numbers outside the training ranges, the hardest test of copying and arithmetic
 
+A whole solution must match exactly, so one slip fails a problem. Two partial scores show progress
+that the exact score hides:
+  numbers copied   every number in the problem appears whole somewhere in the solution
+  steps correct    written steps (multiplications with their sums, subtractions, long-division steps)
+                   that are right given their own inputs, even when an earlier step was wrong
+
 A checkpoint must be scored on the same solution format it was trained on: older checkpoints fail
 every problem type whose solution now has worked steps.
 """
 import argparse
 import math
 import os
+import re
 from collections import Counter
 
 import numpy as np
@@ -38,6 +45,33 @@ OUT_OF_RANGE = {
     "combinations": lambda rng: (lambda n: combinations_problem(n, _int(rng, 2, n - 2)))(
         _int(rng, MAX_COMBINATIONS_N + 1, 30)),
 }
+
+
+DIVISION_STEP = re.compile(r"(\d+) / (\d+) = (\d+), (\d+) - (\d+) = (\d+)")
+SUBTRACTION_CHAIN = re.compile(r"\d+(?: - \d+)+(?: = \d+(?: - \d+)*)+")
+MULTIPLICATION_CHAIN = re.compile(r"\d+ x \d+(?: = \d+(?: [x+] \d+)*)+")    # through the sums and product
+NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def step_checks(solution):
+    """One bool per written step: is it right given the numbers it starts from?"""
+    checks = []
+    for a, b, q, a2, p, r in DIVISION_STEP.findall(solution):
+        a, b, q, a2, p, r = map(int, (a, b, q, a2, p, r))
+        checks.append(a == a2 and p == q * b and r == a - p and 0 <= r < b)
+    for chain in SUBTRACTION_CHAIN.findall(solution):
+        values = [int(t[0]) - sum(map(int, t[1:])) for t in (part.split(" - ") for part in chain.split(" = "))]
+        checks.append(len(set(values)) == 1)
+    for chain in MULTIPLICATION_CHAIN.findall(solution):
+        values = [sum(math.prod(map(int, term.split(" x "))) for term in part.split(" + "))
+                  for part in chain.split(" = ")]
+        checks.append(len(set(values)) == 1)
+    return checks
+
+
+def numbers_copied(problem, solution):
+    """Every number in the problem appears whole in the solution (not cut short, not run on)."""
+    return all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d]|\.\d)", solution) for n in NUMBER.findall(problem))
 
 
 def training_stats(data_dir):
@@ -67,26 +101,36 @@ def scoring_problems(n_per_type=30, n_out_of_range=20, seed=987654):
 
 
 def evaluate(solve, known, problems):
-    """solve(problem) -> text after 'Solution:'. Returns counts as {group: {type: [correct, total]}}."""
+    """solve(problem) -> text after 'Solution:'. Returns counts as {group: {type: [correct, total, copied,
+    steps right, steps written]}}, and the first wrong answer per group and type."""
     results = {"seen": {}, "not seen": {}, "out of range": {}}
     wrong = {}
     for in_range, name, problem, solution in problems:
         group = "out of range" if not in_range else ("seen" if problem in known else "not seen")
         got = solve(problem)
-        row = results[group].setdefault(name, [0, 0])
+        row = results[group].setdefault(name, [0, 0, 0, 0, 0])
+        checks = step_checks(got)
         row[0] += got == solution
         row[1] += 1
+        row[2] += numbers_copied(problem, got)
+        row[3] += sum(checks)
+        row[4] += len(checks)
         if got != solution:
             wrong.setdefault((group, name), (problem, solution.strip(), got.strip()))
     return results, wrong
 
 
 def print_report(results, wrong):
+    def pct(a, b):
+        return f"{100 * a / b:3.0f}%" if b else "   -"
+
+    print("\nexact = whole solution right | copied = problem's numbers all appear whole | "
+          "steps = written steps right given their own inputs")
     for group, rows in results.items():
-        correct, total = sum(r[0] for r in rows.values()), sum(r[1] for r in rows.values())
-        print(f"\n{group}: {correct}/{total}")
-        for name, (c, t) in rows.items():
-            print(f"  {name:13s} {c}/{t}")
+        c, t, cp, sr, sw = (sum(r[i] for r in rows.values()) for i in range(5))
+        print(f"\n{group}: exact {c}/{t} | copied {cp}/{t} | steps {sr}/{sw} {pct(sr, sw)}")
+        for name, (c, t, cp, sr, sw) in rows.items():
+            print(f"  {name:13s} exact {c:3d}/{t:<3d} | copied {cp:3d}/{t:<3d} | steps {sr:4d}/{sw:<4d} {pct(sr, sw)}")
     if wrong:
         print("\nfirst wrong answer per group and type:")
     for (group, name), (problem, expected, got) in wrong.items():
