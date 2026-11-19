@@ -21,6 +21,8 @@ import argparse
 import math
 import os
 import re
+import sys
+import time
 from collections import Counter
 
 import numpy as np
@@ -100,12 +102,15 @@ def scoring_problems(n_per_type=30, n_out_of_range=20, seed=987654):
     return problems
 
 
-def evaluate(solve, known, problems):
+def evaluate(solve, known, problems, progress=None):
     """solve(problem) -> text after 'Solution:'. Returns counts as {group: {type: [correct, total, copied,
-    steps right, steps written]}}, and the first wrong answer per group and type."""
+    steps right, steps written]}}, and the first wrong answer per group and type.
+    progress(done, total) is called after every problem."""
     results = {"seen": {}, "not seen": {}, "out of range": {}}
     wrong = {}
-    for in_range, name, problem, solution in problems:
+    for done, (in_range, name, problem, solution) in enumerate(problems, 1):
+        if progress:
+            progress(done - 1, len(problems))
         group = "out of range" if not in_range else ("seen" if problem in known else "not seen")
         got = solve(problem)
         row = results[group].setdefault(name, [0, 0, 0, 0, 0])
@@ -166,7 +171,15 @@ def main():
     print(f"{a.ckpt}: iter {ck['iter']} | best val {ck['best_val']:.4f} | "
           f"estimated lowest possible loss {floor:.4f}")
     problems = scoring_problems(a.n_per_type, a.n_out_of_range, a.seed)
-    print_report(*evaluate(solve, known, problems))
+    start = time.time()
+
+    def progress(done, total):                     # on stderr, so a stall shows within minutes
+        if done and done % 10 == 0:
+            spent = time.time() - start
+            print(f"  scored {done}/{total} problems | {spent / 60:.1f} min | about "
+                  f"{spent / done * (total - done) / 60:.0f} min left", file=sys.stderr, flush=True)
+
+    print_report(*evaluate(solve, known, problems, progress))
 
 
 if __name__ == "__main__":
