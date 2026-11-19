@@ -45,13 +45,17 @@ def _fmt(x):
 
 
 def _mul_steps(a, b):
-    """'a x b' split over the digits of b, ending in the product."""
+    """'a x b' split over the digits of b, then the partial products added two at a time:
+    '813 x 245 = 813 x 200 + 813 x 40 + 813 x 5 = 162600 + 32520 + 4065 = 195120 + 4065 = 199185'."""
     parts = [int(d) * 10 ** i for i, d in enumerate(reversed(str(b))) if d != "0"][::-1]
     if len(parts) < 2:
         return f"{a} x {b} = {a * b}"
-    terms = " + ".join(f"{a} x {p}" for p in parts)
-    values = " + ".join(str(a * p) for p in parts)
-    return f"{a} x {b} = {terms} = {values} = {a * b}"
+    values = [a * p for p in parts]
+    chain = [" + ".join(f"{a} x {p}" for p in parts)]
+    while len(values) > 1:
+        chain.append(" + ".join(map(str, values)))
+        values = [values[0] + values[1]] + values[2:]
+    return f"{a} x {b} = " + " = ".join(chain) + f" = {a * b}"
 
 
 def _sub_steps(a, b):

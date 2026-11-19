@@ -34,6 +34,14 @@ def test_mul_steps_end_in_the_product(a, b):
     check_steps(_mul_steps(a, b))
 
 
+@pytest.mark.parametrize("a,b", [(813, 245), (52722, 2453), (46, 52), (9, 1001)])
+def test_partial_products_are_added_two_at_a_time(a, b):
+    sums = [part for part in _mul_steps(a, b).split(" = ")[2:] if " x " not in part]
+    terms = [len(part.split(" + ")) for part in sums]
+    assert terms == list(range(terms[0], 0, -1)), sums       # one addition per step, down to the product
+    assert sums[-1] == str(a * b)
+
+
 def test_long_division_matches_exact_fractions():
     rng = np.random.default_rng(0)
     for _ in range(3000):

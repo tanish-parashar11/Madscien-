@@ -39,7 +39,8 @@ The synthetic solutions work the arithmetic out step by step, and about 10% of t
 held out of training to form the validation set, so `best val` measures problems the model never saw.
 Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
 exactly are cut off at 3 decimals (2 for Coulomb, to fit 512 tokens) and marked `...`, not rounded.
-Subtractions are written out too, including the one inside every long-division remainder.
+Subtractions are written out too, including the one inside every long-division remainder. Partial
+products are added two at a time (`162600 + 32520 + 4065 = 195120 + 4065 = 199185`), not in one step.
 Each number is drawn by first picking how many digits it has (up to 3 or 4, depending on the problem
 type). That way long numbers are as common as short ones. The scorer's out-of-range problems use one
 digit more than training ever does.
