@@ -73,8 +73,15 @@ def _sub_steps(a, b):
 
 
 def _division_step(cur, den):
+    """'cur / den = q, cur - p = r' with p = q*den taken off in two parts, leading digit first:
+    '5062 / 3364 = 1, 5062 - 3364 = 5062 - 3000 - 364 = 2062 - 364 = 1698'. A full digit split
+    would make the longest solutions about twice as long."""
     q = cur // den
-    return f"{cur} / {den} = {q}, {cur} - {q * den} = {cur - q * den}"
+    p, r = q * den, cur - q * den
+    lead = int(str(p)[0]) * 10 ** (len(str(p)) - 1)
+    if p == lead:
+        return f"{cur} / {den} = {q}, {cur} - {p} = {r}"
+    return f"{cur} / {den} = {q}, {cur} - {p} = {cur} - {lead} - {p - lead} = {cur - lead} - {p - lead} = {r}"
 
 
 def _long_division(num, den, places=3):
@@ -146,12 +153,13 @@ def king_problem(a, b, f):
 
 
 def combinations_problem(n, r):
+    """Each step is tagged '(i of k)', so the model can see how many steps are left without looking back."""
     k = min(r, n - r)
-    work = f"C({n},{r}) = C({n},{k}). " if k != r else ""
+    work = f"C({n},{r}) = C({n},{k}) because {n} - {r} = {k}. " if k != r else ""
     value = n
     for i in range(2, k + 1):
         product = value * (n - i + 1)
-        work += f"{value} x {n - i + 1} = {product}, {product} / {i} = {product // i}. "
+        work += f"{value} x {n - i + 1} = {product}, {product} / {i} = {product // i} ({i} of {k}). "
         value = product // i
     answer = math.comb(n, r)
     assert k == 0 or value == answer
@@ -199,7 +207,7 @@ def _draw_combinations(rng):
 
 
 MAX_COMBINATIONS_N = 26
-MAX_DOC_TOKENS = 1024           # every training document fits in --block_size 1024
+MAX_DOC_TOKENS = 1280           # every document, in or out of range, fits in --block_size 1280
 
 # Training number ranges, as the most digits per number. Topics mirror the algorithm: electrostatics, EMI,
 # angular momentum, MOT bond order, GOC stability, King property, P&C.

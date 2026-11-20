@@ -30,7 +30,7 @@ import numpy as np
 from madscien.data import (BOS, EOS, MAX_COMBINATIONS_N, SYNTH_KINDS, _int, angular_problem, bond_problem,
                            combinations_problem, coulomb_problem, emf_problem, king_problem, synth_problem)
 
-MAX_SOLUTION_TOKENS = 1000      # longer than any solution in or out of the training ranges
+MAX_SOLUTION_TOKENS = 1300      # longer than any solution in or out of the training ranges
 
 
 def _digits(rng, n):
@@ -49,7 +49,7 @@ OUT_OF_RANGE = {
 }
 
 
-DIVISION_STEP = re.compile(r"(\d+) / (\d+) = (\d+), (\d+) - (\d+) = (\d+)")
+DIVISION_STEP = re.compile(r"(\d+) / (\d+) = (\d+), (\d+) - (\d+) = (?:\d+ - \d+ - \d+ = \d+ - \d+ = )?(\d+)")
 SUBTRACTION_CHAIN = re.compile(r"\d+(?: - \d+)+(?: = \d+(?: - \d+)*)+")
 MULTIPLICATION_CHAIN = re.compile(r"\d+ x \d+(?: = \d+(?: [x+] \d+)*)+")    # through the sums and product
 NUMBER = re.compile(r"\d+(?:\.\d+)?")

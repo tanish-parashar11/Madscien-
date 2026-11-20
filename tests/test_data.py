@@ -146,3 +146,27 @@ def test_sub_steps_end_in_the_difference(a, b):
     check_steps(text)
     if a < b:
         assert f"{b} - {a} = " in text                             # the borrow is worked the other way round
+
+
+def test_remainders_take_off_the_leading_part_first():
+    from madscien.data import _division_step
+    assert _division_step(5062, 3364) == "5062 / 3364 = 1, 5062 - 3364 = 5062 - 3000 - 364 = 2062 - 364 = 1698"
+    assert _division_step(1650, 3364) == "1650 / 3364 = 0, 1650 - 0 = 1650"
+    assert _division_step(70, 7) == "70 / 7 = 10, 70 - 70 = 0"                  # nothing left to split
+    rng = np.random.default_rng(5)
+    for _ in range(2000):
+        cur, den = int(rng.integers(0, 10 ** 6)), int(rng.integers(1, 10 ** 4))
+        step = _division_step(cur, den)
+        check_steps(step)
+        assert step.endswith(f"= {cur % den}")
+
+
+def test_combination_steps_count_up_to_k():
+    rng = np.random.default_rng(6)
+    for _ in range(500):
+        problem, solution = synth_problem(rng, "combinations")
+        r, n = map(int, re.findall(r"can (\d+) student\(s\) be chosen from (\d+)", problem)[0])
+        k = min(r, n - r)
+        assert [int(i) for i in re.findall(r"\((\d+) of (?:\d+)\)", solution)] == list(range(2, k + 1))
+        assert set(re.findall(r"\(\d+ of (\d+)\)", solution)) <= {str(k)}
+        assert (f"because {n} - {r} = {k}" in solution) == (k != r)

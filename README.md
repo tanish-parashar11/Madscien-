@@ -39,29 +39,32 @@ The synthetic solutions work the arithmetic out step by step, and about 10% of t
 held out of training to form the validation set, so `best val` measures problems the model never saw.
 Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
 exactly are cut off at 3 decimals (2 for Coulomb, to fit 512 tokens) and marked `...`, not rounded.
-Subtractions are written out too, including the one inside every long-division remainder. Partial
-products are added two at a time (`162600 + 32520 + 4065 = 195120 + 4065 = 199185`), not in one step.
+Subtractions are written out too. In long division, each remainder takes off the leading part first
+(`5062 - 3364 = 5062 - 3000 - 364 = 2062 - 364 = 1698`); a full digit split would make the longest
+solutions about twice as long. Partial products are added two at a time
+(`162600 + 32520 + 4065 = 195120 + 4065 = 199185`). Combinations show `n - r` when they use it and tag
+each step with how far along it is (`306 / 2 = 153 (2 of 6)`), so the model knows when to stop.
 Each number is drawn by first picking how many digits it has (up to 3 or 4, depending on the problem
 type). That way long numbers are as common as short ones. The scorer's out-of-range problems use one
 digit more than training ever does.
-Solutions run up to about 680 tokens in training and 820 out of range, longer than the `small` preset's
+Solutions run up to about 870 tokens in training and 1180 out of range, longer than the `small` preset's
 256-token context. Train with whole problems in view:
 ```bash
-python train.py --data_dir data/synth --preset small --block_size 1024 --batch_size 3 --align_docs \
-    --digit_positions 32 --digit_offset 16 --max_iters 20000
+python train.py --data_dir data/synth --preset small --block_size 1280 --batch_size 2 --align_docs --max_iters 20000
 ```
-`--digit_positions 32` gives every digit an extra embedding for its place inside its number (1st, 2nd,
+Optional, and it did not help in our runs: `--digit_positions 32 --digit_offset 16` gives every digit an extra embedding for its place inside its number (1st, 2nd,
 3rd digit ...), like the "Abacus" embeddings from published research. Training shifts every place by a
 random 0 to `--digit_offset` per sequence, so the embeddings for places beyond the longest training number
 get trained too. Without this, a model trained on numbers of up to 3 digits cuts 4-digit numbers down to
-3 when it copies them. It is off by default, so older checkpoints still load and run as before. During
+3 when it copies them; scored with partial credit, it copied no more 4-digit numbers than a model
+without it. It is off by default, so older checkpoints still load and run as before. During
 generation, if the context overflows and the cache is rebuilt inside a number, that number's places
 restart at 1.
 `--align_docs` starts every training window at the beginning of a problem. Without it, most windows that
 reach the later steps of a long solution have lost the problem's numbers, so the model learns to guess
-them instead of copying them. The scorer uses the checkpoint's own context, so a 1024-token checkpoint also
-keeps the longest out-of-range problems in view. On an 8 GB GPU, `--block_size 1024 --batch_size 3` uses
-about 6.5 GB and runs at the same speed as `512 / 6`.
+them instead of copying them. The scorer uses the checkpoint's own context, so a 1280-token checkpoint also
+keeps the longest out-of-range problems in view. On an 8 GB GPU, `--block_size 1280 --batch_size 2` uses
+about 5.5 GB; batch 3 needs about 7.9 GB and runs at half speed.
 
 ## Your algorithm -> code
 
