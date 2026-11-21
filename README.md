@@ -45,12 +45,16 @@ solutions about twice as long. Partial products are added two at a time
 (`162600 + 32520 + 4065 = 195120 + 4065 = 199185`). Combinations show `n - r` when they use it and tag
 each step with how far along it is (`306 / 2 = 153 (2 of 6)`), so the model knows when to stop.
 Each number is drawn by first picking how many digits it has (up to 3 or 4, depending on the problem
-type). That way long numbers are as common as short ones. The scorer's out-of-range problems use one
-digit more than training ever does.
-Solutions run up to about 870 tokens in training and 1180 out of range, longer than the `small` preset's
+type). That way long numbers are as common as short ones. In addition, 5% of the large numbers (charges,
+turns, flux, moments of inertia, spin rates, electron counts, integral limits; not the divisors) get one
+digit more. Without these, a model trained on numbers of up to 3 digits cuts every 4-digit number to 3
+when it copies it, because it has never seen a number in that place run longer. The scorer's out-of-range
+problems use numbers longer than training ever does: two digits more for the large numbers, one more for
+the divisors.
+Solutions run up to about 1070 tokens in training and 1510 out of range, longer than the `small` preset's
 256-token context. Train with whole problems in view:
 ```bash
-python train.py --data_dir data/synth --preset small --block_size 1280 --batch_size 2 --align_docs --max_iters 20000
+python train.py --data_dir data/synth --preset small --block_size 1536 --batch_size 2 --align_docs --max_iters 20000
 ```
 Optional, and it did not help in our runs: `--digit_positions 32 --digit_offset 16` gives every digit an extra embedding for its place inside its number (1st, 2nd,
 3rd digit ...), like the "Abacus" embeddings from published research. Training shifts every place by a
@@ -62,9 +66,10 @@ generation, if the context overflows and the cache is rebuilt inside a number, t
 restart at 1.
 `--align_docs` starts every training window at the beginning of a problem. Without it, most windows that
 reach the later steps of a long solution have lost the problem's numbers, so the model learns to guess
-them instead of copying them. The scorer uses the checkpoint's own context, so a 1280-token checkpoint also
-keeps the longest out-of-range problems in view. On an 8 GB GPU, `--block_size 1280 --batch_size 2` uses
-about 5.5 GB; batch 3 needs about 7.9 GB and runs at half speed.
+them instead of copying them. The scorer uses the checkpoint's own context, so a 1536-token checkpoint also
+keeps the longest out-of-range problems in view (training documents alone would fit 1280). On an 8 GB GPU,
+`--block_size 1280 --batch_size 2` uses about 5.5 GB and batch 3 about 7.9 GB, at half speed; 1536 with
+batch 2 should sit in between.
 
 ## Your algorithm -> code
 

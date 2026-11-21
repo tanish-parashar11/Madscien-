@@ -70,7 +70,7 @@ def test_out_of_range_numbers_are_longer_than_any_in_training():
     for name, make in OUT_OF_RANGE.items():
         if name != "combinations":                           # combinations: larger n, more steps
             assert longest(make) > longest(SYNTH_KINDS[name]), name
-    assert longest(SYNTH_KINDS["coulomb"]) == 3 and longest(SYNTH_KINDS["emf"]) == 4
+    assert longest(SYNTH_KINDS["coulomb"]) == 4 and longest(SYNTH_KINDS["emf"]) == 5    # with the long mix
     for name in ("bond", "king"):                            # every length up to the longest is common
         lengths = Counter(len(n) for _ in range(3000) for n in re.findall(r"\d+", SYNTH_KINDS[name](rng)[0])[:2])
         assert min(lengths[d] for d in (1, 2, 3)) > 0.2 * sum(lengths.values()), (name, lengths)
@@ -101,3 +101,13 @@ def test_scorer_counts_partial_scores():
     assert sum(r[4] for rows in results.values() for r in rows.values()) > 100
     results, _ = evaluate(lambda p: "no steps here", set(), problems)
     assert all(r[2] == r[3] == r[4] == 0 for name, r in results["out of range"].items())
+
+
+def test_a_few_training_numbers_run_one_digit_long():
+    rng = np.random.default_rng(5)
+    charges = [len(n) for _ in range(4000)
+               for n in re.findall(r"(\d+) uC", SYNTH_KINDS["coulomb"](rng)[0])]
+    distances = [len(re.findall(r"(\d+) m apart", SYNTH_KINDS["coulomb"](rng)[0])[0]) for _ in range(2000)]
+    share = charges.count(4) / len(charges)
+    assert 0.03 < share < 0.07 and max(charges) == 4, share          # LONG_NUMBER_SHARE, one digit only
+    assert max(distances) == 2                                        # divisors keep their range

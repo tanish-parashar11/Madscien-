@@ -30,20 +30,21 @@ import numpy as np
 from madscien.data import (BOS, EOS, MAX_COMBINATIONS_N, SYNTH_KINDS, _int, angular_problem, bond_problem,
                            combinations_problem, coulomb_problem, emf_problem, king_problem, synth_problem)
 
-MAX_SOLUTION_TOKENS = 1300      # longer than any solution in or out of the training ranges
+MAX_SOLUTION_TOKENS = 1600      # longer than any solution in or out of the training ranges
 
 
 def _digits(rng, n):
     return _int(rng, 10 ** (n - 1), 10 ** n - 1)
 
 
-# Every number has one digit more than training ever uses (combinations: a larger n).
+# Every number is longer than training ever uses: the large numbers, which training sometimes draws one
+# digit long, by two digits; the divisors by one (combinations: a larger n).
 OUT_OF_RANGE = {
-    "coulomb": lambda rng: coulomb_problem(_digits(rng, 4), _digits(rng, 4), _digits(rng, 3)),
-    "emf": lambda rng: emf_problem(_digits(rng, 5), _digits(rng, 4), _digits(rng, 3)),
-    "angular": lambda rng: angular_problem(_digits(rng, 4), _digits(rng, 4), _digits(rng, 3)),
-    "bond": lambda rng: bond_problem(_digits(rng, 4), _digits(rng, 4)),
-    "king": lambda rng: king_problem(*sorted((_digits(rng, 4), _digits(rng, 4))), "e^x"),
+    "coulomb": lambda rng: coulomb_problem(_digits(rng, 5), _digits(rng, 5), _digits(rng, 3)),
+    "emf": lambda rng: emf_problem(_digits(rng, 6), _digits(rng, 5), _digits(rng, 3)),
+    "angular": lambda rng: angular_problem(_digits(rng, 5), _digits(rng, 5), _digits(rng, 3)),
+    "bond": lambda rng: bond_problem(_digits(rng, 5), _digits(rng, 5)),
+    "king": lambda rng: king_problem(*sorted((_digits(rng, 5), _digits(rng, 5))), "e^x"),
     "combinations": lambda rng: (lambda n: combinations_problem(n, _int(rng, 2, n - 2)))(
         _int(rng, MAX_COMBINATIONS_N + 1, 30)),
 }

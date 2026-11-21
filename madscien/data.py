@@ -178,6 +178,14 @@ def _num(rng, max_digits, lo=1):
     return _int(rng, max(lo, 10 ** (digits - 1)) if digits > 1 else lo, 10 ** digits - 1)
 
 
+def _big(rng, max_digits, lo=1):
+    """Like _num, but LONG_NUMBER_SHARE of the time exactly one digit longer. A few longer numbers teach
+    the model that a number in this place can run past max_digits, so it copies it whole."""
+    if rng.random() < LONG_NUMBER_SHARE:
+        return _int(rng, 10 ** max_digits, 10 ** (max_digits + 1) - 1)
+    return _num(rng, max_digits, lo)
+
+
 def _goc_options(rng):
     names = ["primary", "secondary", "tertiary"]
     return [names[i] for i in rng.permutation(3)[: _int(rng, 2, 3)]]
@@ -185,14 +193,14 @@ def _goc_options(rng):
 
 def _king_limits(rng, max_digits):
     while True:
-        a, b = sorted((_num(rng, max_digits, lo=0), _num(rng, max_digits, lo=0)))
+        a, b = sorted((_big(rng, max_digits, lo=0), _big(rng, max_digits, lo=0)))
         if a < b:
             return a, b
 
 
 def _draw_coulomb(rng):
     while True:
-        q1, q2, r = _num(rng, 3), _num(rng, 3), _num(rng, 2)
+        q1, q2, r = _big(rng, 3), _big(rng, 3), _num(rng, 2)
         if 9 * q1 * q2 >= r * r:                    # at least 1 mN, so 2 decimals never show 0.00...
             return coulomb_problem(q1, q2, r)
 
@@ -207,15 +215,16 @@ def _draw_combinations(rng):
 
 
 MAX_COMBINATIONS_N = 26
-MAX_DOC_TOKENS = 1280           # every document, in or out of range, fits in --block_size 1280
+MAX_DOC_TOKENS = 1536           # every document, in or out of range, fits in --block_size 1536
+LONG_NUMBER_SHARE = 0.05        # share of large numbers (not divisors) drawn one digit past the range
 
-# Training number ranges, as the most digits per number. Topics mirror the algorithm: electrostatics, EMI,
+# Training number ranges, as the most digits per number; _big numbers sometimes run one digit longer. Topics mirror the algorithm: electrostatics, EMI,
 # angular momentum, MOT bond order, GOC stability, King property, P&C.
 SYNTH_KINDS = {
     "coulomb": _draw_coulomb,
-    "emf": lambda rng: emf_problem(_num(rng, 4), _num(rng, 3), _num(rng, 2)),
-    "angular": lambda rng: angular_problem(_num(rng, 3), _num(rng, 3), _num(rng, 2)),
-    "bond": lambda rng: bond_problem(_num(rng, 3, lo=2), _num(rng, 3, lo=0)),
+    "emf": lambda rng: emf_problem(_big(rng, 4), _big(rng, 3), _num(rng, 2)),
+    "angular": lambda rng: angular_problem(_big(rng, 3), _big(rng, 3), _num(rng, 2)),
+    "bond": lambda rng: bond_problem(_big(rng, 3, lo=2), _big(rng, 3, lo=0)),
     "goc": lambda rng: goc_problem(_goc_options(rng)),
     "king": _draw_king,
     "combinations": _draw_combinations,
