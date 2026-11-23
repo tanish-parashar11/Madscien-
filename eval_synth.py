@@ -14,6 +14,10 @@ that the exact score hides:
   steps correct    written steps (multiplications with their sums, subtractions, long-division steps)
                    that are right given their own inputs, even when an earlier step was wrong
 
+--calculator lets madscien/calculator.py fix every result the model gets wrong as it writes, so the
+scores show how well the model sets problems up and copies their numbers, with arithmetic taken out.
+The report also counts the corrections it made.
+
 A checkpoint must be scored on the same solution format it was trained on: older checkpoints fail
 every problem type whose solution now has worked steps.
 """
@@ -151,10 +155,12 @@ def main():
     ap.add_argument("--n_out_of_range", type=int, default=20, help="out-of-range problems per type")
     ap.add_argument("--seed", type=int, default=987654)
     ap.add_argument("--device", default=None)
+    ap.add_argument("--calculator", action="store_true", help="fix arithmetic slips while generating")
     a = ap.parse_args()
 
     import torch
 
+    from madscien import calculator
     from madscien.config import X5Config
     from madscien.model import MadScienLM
 
@@ -163,10 +169,18 @@ def main():
     model = MadScienLM(X5Config(**ck["cfg"])).to(device).eval()
     model.load_state_dict(ck["model"])
 
+    fixes = []
+
     def solve(problem):
         ids = [BOS] + list((problem + "\nSolution:").encode("utf-8"))
-        out = model.generate(torch.tensor([ids], device=device), MAX_SOLUTION_TOKENS, temperature=0, eos_id=EOS)
-        return bytes(t for t in out[0].tolist()[len(ids):] if t < 256).decode("utf-8", "replace")
+        if a.calculator:
+            new, n = calculator.generate(model, ids, MAX_SOLUTION_TOKENS, EOS)
+            fixes.append(n)
+        else:
+            out = model.generate(torch.tensor([ids], device=device), MAX_SOLUTION_TOKENS, temperature=0,
+                                 eos_id=EOS)
+            new = out[0].tolist()[len(ids):]
+        return bytes(t for t in new if t < 256).decode("utf-8", "replace")
 
     known, floor = training_stats(a.data_dir)
     print(f"{a.ckpt}: iter {ck['iter']} | best val {ck['best_val']:.4f} | "
@@ -181,6 +195,9 @@ def main():
                   f"{spent / done * (total - done) / 60:.0f} min left", file=sys.stderr, flush=True)
 
     print_report(*evaluate(solve, known, problems, progress))
+    if a.calculator:
+        print(f"\ncalculator: {sum(fixes)} corrections in {len(fixes)} problems "
+              f"({sum(n > 0 for n in fixes)} problems needed at least one)")
 
 
 if __name__ == "__main__":

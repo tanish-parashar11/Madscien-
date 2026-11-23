@@ -35,6 +35,14 @@ Each group gets three scores:
 The last two show progress the exact score hides, for example a model that now copies 4-digit numbers
 but still slips in one long multiplication. The tests run the same step check on every training solution.
 
+Add `--calculator` to fix arithmetic while the model writes (`madscien/calculator.py`). When the model
+finishes a result (a product, a sum, a subtraction step, a division digit, the product in a long-division
+step), the calculator replaces it with the exact value if it is wrong, and generation carries on from the
+fixed text. The model still copies the problem's numbers and chooses every step, so this score measures
+setup and copying. The report ends with the number of corrections. No retraining is needed: any checkpoint
+trained on this format can be scored both ways. Out of range, a solution has 50 to 60 steps, so even 96%
+per step leaves under 10% of solutions exactly right without the calculator.
+
 The synthetic solutions work the arithmetic out step by step, and about 10% of the numeric problems are
 held out of training to form the validation set, so `best val` measures problems the model never saw.
 Datasets and checkpoints made before this format must be rebuilt and retrained. Answers that do not end
