@@ -36,7 +36,10 @@ def test_correct_solutions_are_never_changed():
     ("5062 - 3000 - 364 = 2162 - 364 = ", "5062 - 3000 - 364 = 2062 - 364 = "),
     ("1160 - 156 = 1904, ", "1160 - 156 = 1004, "),
     ("9134 - 1109 = 9134 - 1000 - 10 - 9 = ", "9134 - 1109 = 9134 - 1000 - 100 - 9 = "),
-    ("because 26 - 15 = 10. ", "because 26 - 15 = 11. "),
+    ("combinations: 26 - 15 = 10, ", "combinations: 26 - 15 = 11, "),
+    ("14250600 / 7 = 1262.5 (", "14250600 / 7 = 2035800 ("),                          # from out_long
+    ("bond order = 2393 / 2 = 1196, ", "bond order = 2393 / 2 = 1196.5, "),
+    ("so I = 506 / 2 = 252.\n", "so I = 506 / 2 = 253.\n"),
     ("650 / 2 = 324 (", "650 / 2 = 325 ("),
     ("27 x 26 = 348, ", "27 x 26 = 702, "),
 ])
@@ -44,10 +47,24 @@ def test_real_slips_are_fixed(wrong, right):
     assert fix("Solution: " + wrong) == "Solution: " + right
 
 
+COULOMB = ("9 x 821 = 7389. 7389 x 594 = 4389066. 6 x 6 = 36. 43 / 36 = 1, 43 - 36 = 7, 78 / 36 = 2, "
+           "78 - 72 = 6, 69 / 36 = 1, 69 - 36 = 33. F = ")
+
+
+@pytest.mark.parametrize("wrong,right", [
+    (COULOMB + "121118.5 ", COULOMB + "121918.5 "),                     # out_long read a quotient digit wrong
+    ("= 6192. 61 / 64 = 0, 61 - 0 = 61. w2 = 095.5 ", "= 6192. 61 / 64 = 0, 61 - 0 = 61. w2 = 96.75 "),
+    ("= 34000. 340 / 200 = 1, 340 - 200 = 140. e = -17 ", "= 34000. 340 / 200 = 1, 340 - 200 = 140. e = -170 "),
+    ("= 779642. 77 / 17 = 4, 77 - 68 = 9. w2 = 45861.293... ", "= 779642. 77 / 17 = 4, 77 - 68 = 9. w2 = 45861.294... "),
+])
+def test_final_answers_are_what_the_division_gives(wrong, right):
+    assert fix(wrong) == right
+
+
 def test_copying_and_multiplication_splits_are_left_to_the_model():
     for text in ("9e9 x 585e-6 x 245e-6 / 590^2 N = 9 x 585 x 245 / 590^2 mN. ",   # a cut-short copy
                  "813 x 245 = 813 x 200 + 813 x 40 + 813 x 4 = ",                  # a wrong split
-                 "bond order = 2393 / 2 = 1196.4, ",                               # decimals
+                 "w2 = I1 w1 / I2 = 914 x 853 / 17. ",                            # no long division yet
                  "6 - 906 = -(906 - 6), "):
         assert fix(text) == text
 

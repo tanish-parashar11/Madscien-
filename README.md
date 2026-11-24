@@ -37,8 +37,8 @@ but still slips in one long multiplication. The tests run the same step check on
 
 Add `--calculator` to fix arithmetic while the model writes (`madscien/calculator.py`). When the model
 finishes a result (a product, a sum, a subtraction step, a division digit, the product in a long-division
-step), the calculator replaces it with the exact value if it is wrong, and generation carries on from the
-fixed text. The model still copies the problem's numbers and chooses every step, so this score measures
+step, a division result, the final answer read back from the long division), the calculator replaces it
+with the exact value if it is wrong, and generation carries on from the fixed text. The model still copies the problem's numbers and chooses every step, so this score measures
 setup and copying. The report ends with the number of corrections. No retraining is needed: any checkpoint
 trained on this format can be scored both ways. Out of range, a solution has 50 to 60 steps, so even 96%
 per step leaves under 10% of solutions exactly right without the calculator.
@@ -50,7 +50,8 @@ exactly are cut off at 3 decimals (2 for Coulomb, to fit 512 tokens) and marked 
 Subtractions are written out too. In long division, each remainder takes off the leading part first
 (`5062 - 3364 = 5062 - 3000 - 364 = 2062 - 364 = 1698`); a full digit split would make the longest
 solutions about twice as long. Partial products are added two at a time
-(`162600 + 32520 + 4065 = 195120 + 4065 = 199185`). Combinations show `n - r` when they use it and tag
+(`162600 + 32520 + 4065 = 195120 + 4065 = 199185`). Combinations work out `n - r` before they use it
+(`26 - 15 = 11, so C(26,15) = C(26,11)`), so the model never commits to k before computing it, and tag
 each step with how far along it is (`306 / 2 = 153 (2 of 6)`), so the model knows when to stop.
 Each number is drawn by first picking how many digits it has (up to 3 or 4, depending on the problem
 type). That way long numbers are as common as short ones. In addition, 5% of the large numbers (charges,

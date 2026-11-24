@@ -169,4 +169,4 @@ def test_combination_steps_count_up_to_k():
         k = min(r, n - r)
         assert [int(i) for i in re.findall(r"\((\d+) of (?:\d+)\)", solution)] == list(range(2, k + 1))
         assert set(re.findall(r"\(\d+ of (\d+)\)", solution)) <= {str(k)}
-        assert (f"because {n} - {r} = {k}" in solution) == (k != r)
+        assert (f" {n} - {r} = {k}, so C({n},{r}) = C({n},{k}). " in solution) == (k != r)

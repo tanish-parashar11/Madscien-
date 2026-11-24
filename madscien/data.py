@@ -155,7 +155,7 @@ def king_problem(a, b, f):
 def combinations_problem(n, r):
     """Each step is tagged '(i of k)', so the model can see how many steps are left without looking back."""
     k = min(r, n - r)
-    work = f"C({n},{r}) = C({n},{k}) because {n} - {r} = {k}. " if k != r else ""
+    work = f"{n} - {r} = {k}, so C({n},{r}) = C({n},{k}). " if k != r else ""
     value = n
     for i in range(2, k + 1):
         product = value * (n - i + 1)

@@ -6,21 +6,29 @@ Each time it finishes a result, the calculator checks it against the expression 
 and replaces it with the exact value if the model slipped. Generation then carries on from the fixed text.
 
 What it fixes, after "E = " once the right side R is complete (R ends in ", ", " = ", ". ", " (" or ".\\n"):
-  a single number      9829 x 7 = 68703    -> 68803      (also a / b, as whole-number division)
+  a single number      9829 x 7 = 68703    -> 68803
+  a division           14250600 / 7 = 1262.5   -> 2035800  (halves after "bond order =" and "so I =":
+                       2393 / 2 = 1196 -> 1196.5)
   partial products     134 x 700 + 134 x 6 = 93800 + 704   -> 93800 + 804
   one addition         1999400 + 799760 + 89973 = 2789160 + 89973   -> 2799160 + 89973
   a subtraction split  5062 - 3364 = 5062 - 3000 - 264   -> 5062 - 3000 - 364   (and digit by digit)
-and in long division, the product in "a / b = q, a - p = " is set to q x b.
+In long division, the product in "a / b = q, a - p = " is set to q x b. The final answer (F =, e =,
+w2 =) is set to what dividing the written dividend by the written divisor gives, so a quotient digit
+read back wrong (121918.5 written as 121118.5) is fixed.
 
-It never changes what the model copied from the problem, a multiplication split (813 x 200 + ...), or
-decimals: copying stays the model's job, so scores with the calculator show how well it sets problems up.
+It never changes what the model copied from the problem, or a multiplication split (813 x 200 + ...):
+copying stays the model's job, so scores with the calculator show how well it sets problems up.
 """
 import re
 
+from madscien.data import _fmt, _long_division
+
 TERM = r"\d+(?: x \d+)*"
 EXPR = rf"\d+ / \d+|{TERM}(?: [+-] {TERM})+|\d+(?: x \d+)+"          # at least one operator
-RESULT = r"(?:\d+ [+-] )*\d+"
+RESULT = r"(?:\d+ [+-] )*\d+(?:\.\d+)?"
 STEP = re.compile(rf"(?<![\d.])({EXPR}) = ({RESULT})(, | = |\. | \(|\.\n)$")
+ANSWER = re.compile(r"(?:^|\. )(F|e|w2) = (-?)(\d+(?:\.\d+)?(?:\.\.\.)?) $")   # the long division's result
+FIRST_STEP = re.compile(r"(?<![\d.])\d+ / (\d+) = \d+, ")
 DIVISION = re.compile(r"(?<![\d.])(\d+) / (\d+) = (\d+), (\d+) - (\d+) = $")
 TAIL = 800                       # longer than any expression and result in the training format
 
@@ -58,10 +66,18 @@ def _digit_parts(n):
     return [int(d) * 10 ** (len(s) - 1 - i) for i, d in enumerate(s) if d != "0"]
 
 
-def correct(expr, result):
-    """The result the training format writes after 'expr = ', given the shape the model chose for it."""
+def correct(expr, result, before=""):
+    """The result the training format writes after 'expr = ', given the shape the model chose for it.
+    before: the text in front of expr."""
     if " / " in expr:
-        return str(value(expr)) if result.isdigit() and int(expr.split(" / ")[1]) else result
+        a, b = map(int, expr.split(" / "))
+        if not b:
+            return result
+        if b == 2 and before.endswith(("bond order = ", "so I = ")):    # halves are written as decimals
+            return _fmt(a / 2)
+        return str(a // b)                       # long division and combinations: whole numbers
+    if "." in result:
+        return result
     if result.isdigit():
         return str(value(expr)) if value(expr) >= 0 else result
     e_terms, e_ops = _split(expr)
@@ -89,7 +105,7 @@ def fix(text):
     head, tail = text[:-TAIL], text[-TAIL:]
     m = STEP.search(tail)
     if m:
-        new = correct(m.group(1), m.group(2))
+        new = correct(m.group(1), m.group(2), tail[:m.start(1)])
         if new != m.group(2):
             tail = tail[:m.start(2)] + new + m.group(3)
     m = DIVISION.search(tail)
@@ -97,7 +113,24 @@ def fix(text):
         p = str(int(m.group(2)) * int(m.group(3)))
         if p != m.group(5):
             tail = tail[:m.start(5)] + p + " = "
+    m = ANSWER.search(text)
+    if m:
+        answer = final_answer(text[:m.start()], m.group(1) == "F")
+        if answer and answer != m.group(3):
+            return text[:m.start(3)] + answer + " "
     return head + tail
+
+
+def final_answer(text, coulomb):
+    """What the long division written in text gives: its dividend is the last result before the first
+    division step (Coulomb: the one before r x r), its divisor the one every step divides by."""
+    first = FIRST_STEP.search(text)
+    if not first:
+        return None
+    results = re.findall(r"= (\d+)\. ", text[:first.start()])
+    if len(results) < 1 + coulomb:
+        return None
+    return _long_division(int(results[-1 - coulomb]), int(first.group(1)), places=2 if coulomb else 3)[1]
 
 
 def generate(model, ids, max_new_tokens, eos_id, calculator=True):
