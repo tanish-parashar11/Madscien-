@@ -14,7 +14,9 @@ What it fixes, after "E = " once the right side R is complete (R ends in ", ", "
   a subtraction split  5062 - 3364 = 5062 - 3000 - 264   -> 5062 - 3000 - 364   (and digit by digit)
 In long division, the product in "a / b = q, a - p = " is set to q x b. The final answer (F =, e =,
 w2 =) is set to what dividing the written dividend by the written divisor gives, so a quotient digit
-read back wrong (121918.5 written as 121118.5) is fixed.
+read back wrong (121918.5 written as 121118.5) is fixed. Long division also writes where it is (", left 25"
+for the dividend digits not used yet, ", decimal 1 of 2"); the calculator fixes those markers and the number
+brought down after them (r x 10 plus the next digit left), but not the choice of first chunk or when to stop.
 
 It never changes what the model copied from the problem, or a multiplication split (813 x 200 + ...):
 copying stays the model's job, so scores with the calculator show how well it sets problems up.
@@ -28,8 +30,10 @@ EXPR = rf"\d+ / \d+|{TERM}(?: [+-] {TERM})+|\d+(?: x \d+)+"          # at least 
 RESULT = r"(?:\d+ [+-] )*\d+(?:\.\d+)?"
 STEP = re.compile(rf"(?<![\d.])({EXPR}) = ({RESULT})(, | = |\. | \(|\.\n)$")
 ANSWER = re.compile(r"(?:^|\. )(F|e|w2) = (-?)(\d+(?:\.\d+)?(?:\.\.\.)?) $")   # the long division's result
-FIRST_STEP = re.compile(r"(?<![\d.])\d+ / (\d+) = \d+, ")
+FIRST_STEP = re.compile(r"(?<![\d.])(\d+) / (\d+) = \d+, ")
+MARKER = re.compile(r", (?:left (\d+|none)|decimal (\d+) of (\d+))(, |\. )$")   # long division's place
 DIVISION = re.compile(r"(?<![\d.])(\d+) / (\d+) = (\d+), (\d+) - (\d+) = $")
+BRING_DOWN = re.compile(r"= (\d+), (?:left (\d)\d*|left none|decimal \d+ of \d+), (\d+) / \d+ = $")
 TAIL = 800                       # longer than any expression and result in the training format
 
 
@@ -113,24 +117,57 @@ def fix(text):
         p = str(int(m.group(2)) * int(m.group(3)))
         if p != m.group(5):
             tail = tail[:m.start(5)] + p + " = "
+    m = BRING_DOWN.search(tail)
+    if m:
+        cur = str(int(m.group(1)) * 10 + int(m.group(2) or 0))
+        if cur != m.group(3):
+            tail = tail[:m.start(3)] + cur + tail[m.end(3):]
+    m = MARKER.search(text)
+    if m:
+        marker = place_marker(text[:m.start()], m.group(1) is not None)
+        if marker and marker != m.group(0)[2:-len(m.group(4))]:
+            return text[:m.start()] + ", " + marker + m.group(4)
     m = ANSWER.search(text)
     if m:
-        answer = final_answer(text[:m.start()], m.group(1) == "F")
+        answer = final_answer(text[:m.start()])
         if answer and answer != m.group(3):
             return text[:m.start(3)] + answer + " "
     return head + tail
 
 
-def final_answer(text, coulomb):
-    """What the long division written in text gives: its dividend is the last result before the first
-    division step (Coulomb: the one before r x r), its divisor the one every step divides by."""
+def _division(text):
+    """(dividend, divisor, places, where the first step starts) of the long division in a solution: the
+    dividend is the last result before the first division step (Coulomb: the one before r x r)."""
     first = FIRST_STEP.search(text)
     if not first:
         return None
+    coulomb = "^2 mN. " in text[:first.start()]
     results = re.findall(r"= (\d+)\. ", text[:first.start()])
     if len(results) < 1 + coulomb:
         return None
-    return _long_division(int(results[-1 - coulomb]), int(first.group(1)), places=2 if coulomb else 3)[1]
+    return int(results[-1 - coulomb]), int(first.group(2)), 2 if coulomb else 3, first
+
+
+def final_answer(text):
+    """What the long division written in text gives."""
+    found = _division(text)
+    return found and _long_division(*found[:3])[1]
+
+
+def place_marker(text, on_dividend):
+    """The marker the step that text ends with should carry: 'left' and the dividend digits not used yet
+    (counted from the first step the model chose), or 'decimal j of places'."""
+    found = _division(text)
+    if not found:
+        return None
+    dividend, _, places, first = found
+    digits, block = str(dividend), text[first.start():]
+    if on_dividend:
+        if not digits.startswith(first.group(1)):
+            return None
+        used = len(first.group(1)) + block.count(", left ")         # this step's digit included
+        return f"left {digits[used:] or 'none'}"
+    return f"decimal {block.count(', decimal ') + 1} of {places}"
 
 
 def generate(model, ids, max_new_tokens, eos_id, calculator=True):

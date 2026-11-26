@@ -34,7 +34,7 @@ import numpy as np
 from madscien.data import (BOS, EOS, MAX_COMBINATIONS_N, SYNTH_KINDS, _int, angular_problem, bond_problem,
                            combinations_problem, coulomb_problem, emf_problem, king_problem, synth_problem)
 
-MAX_SOLUTION_TOKENS = 1600      # longer than any solution in or out of the training ranges
+MAX_SOLUTION_TOKENS = 1700      # longer than any solution in or out of the training ranges
 
 
 def _digits(rng, n):

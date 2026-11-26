@@ -1,5 +1,6 @@
 """The calculator must fix slips and never touch a correct solution."""
 import re
+from collections import Counter
 from types import SimpleNamespace
 
 import numpy as np
@@ -47,7 +48,7 @@ def test_real_slips_are_fixed(wrong, right):
     assert fix("Solution: " + wrong) == "Solution: " + right
 
 
-COULOMB = ("9 x 821 = 7389. 7389 x 594 = 4389066. 6 x 6 = 36. 43 / 36 = 1, 43 - 36 = 7, 78 / 36 = 2, "
+COULOMB = ("9 x 821 x 594 / 6^2 mN. 9 x 821 = 7389. 7389 x 594 = 4389066. 6 x 6 = 36. 43 / 36 = 1, 43 - 36 = 7, 78 / 36 = 2, "
            "78 - 72 = 6, 69 / 36 = 1, 69 - 36 = 33. F = ")
 
 
@@ -118,3 +119,30 @@ def test_generation_with_the_calculator_recovers_the_right_solution():
         assert fixes == 0 and (slipped != solution) == bool(model.slips), name
         out, fixes = generate(model, prompt, 3000, EOS)
         assert bytes(out).decode() == solution and fixes == len(model.slips), name
+
+
+def test_long_division_says_where_it_is():
+    from madscien.data import coulomb_problem
+    steps = coulomb_problem(341, 625, 58)[1]
+    assert re.findall(r", (left \w+|decimal \d of \d)", steps) == ["left 25", "left 5", "left none",
+                                                                   "decimal 1 of 2", "decimal 2 of 2"]
+
+
+def corrupted(solution, pattern):
+    """(wrong prefix, right prefix) for every match of pattern's group 1 in solution."""
+    for m in re.finditer(pattern, solution):
+        right = solution[:m.end()]
+        old = m.group(1)
+        new = "none" if old != "none" and not old.isdigit() else ("7" + old if old.isdigit() else "3")
+        yield right[:m.start(1)] + new + right[m.end(1):], right
+
+
+def test_wrong_markers_and_brought_down_numbers_are_fixed():
+    seen = Counter()
+    for solution in solutions(40, seed=3):
+        for pattern, kind in [(r", left (\d+|none), ", "left"), (r", decimal (\d+) of \d+[,.] ", "decimal"),
+                              (r"(?:left \w+|decimal \d+ of \d+), (\d+) / \d+ = ", "brought down")]:
+            for wrong, right in corrupted(solution, pattern):
+                assert fix(wrong) == right, (kind, wrong[-120:])
+                seen[kind] += 1
+    assert min(seen.values()) > 50, seen

@@ -86,20 +86,23 @@ def _division_step(cur, den):
 
 def _long_division(num, den, places=3):
     """Digit-by-digit division, each remainder worked out as a subtraction. Returns (steps, value);
-    a value cut off at `places` ends in '...'."""
-    steps, whole, rem = [], "", 0
-    for digit in str(num):
+    a value cut off at `places` ends in '...'.
+    Each step says where it is, so the model never has to find its place by looking back: a step on
+    the dividend's digits ends in 'left' and the digits not used yet (the next one is brought down),
+    or 'left none'; a decimal step ends in 'decimal j of places'."""
+    steps, whole, rem, digits = [], "", 0, str(num)
+    for i, digit in enumerate(digits):
         cur = rem * 10 + int(digit)
         rem = cur % den
         if whole or cur >= den:
             whole += str(cur // den)
-            steps.append(_division_step(cur, den))
+            steps.append(f"{_division_step(cur, den)}, left {digits[i + 1:] or 'none'}")
     decimals = ""
     while rem and len(decimals) < places:
         cur = rem * 10
         rem = cur % den
         decimals += str(cur // den)
-        steps.append(_division_step(cur, den))
+        steps.append(f"{_division_step(cur, den)}, decimal {len(decimals)} of {places}")
     value = (whole or "0") + (f".{decimals}" if decimals else "") + ("..." if rem else "")
     return ", ".join(steps), value
 
@@ -215,7 +218,7 @@ def _draw_combinations(rng):
 
 
 MAX_COMBINATIONS_N = 26
-MAX_DOC_TOKENS = 1536           # every document, in or out of range, fits in --block_size 1536
+MAX_DOC_TOKENS = 1664           # every document, in or out of range, fits in --block_size 1664
 LONG_NUMBER_SHARE = 0.05        # share of large numbers (not divisors) drawn one digit past the range
 
 # Training number ranges, as the most digits per number; _big numbers sometimes run one digit longer. Topics mirror the algorithm: electrostatics, EMI,
