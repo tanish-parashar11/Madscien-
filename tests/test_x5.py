@@ -309,3 +309,49 @@ def test_loss_ignores_masked_targets():
     out = model(x, y)
     manual = F.cross_entropy(out.logits[:, 8:].reshape(-1, 64), y[:, 8:].reshape(-1))
     assert torch.allclose(out.loss, manual, atol=1e-6)
+
+
+# ------------------------------------------------------------------ digit positions
+def test_digit_places_count_each_digit_inside_its_number():
+    from madscien.model import digit_places
+    text = "x 123, 45 6"
+    idx = torch.tensor([list(text.encode())])
+    want = [0, 0, 1, 2, 3, 0, 0, 1, 2, 0, 1]
+    assert digit_places(idx).tolist() == [want]
+    for cut in range(1, len(text)):                     # split anywhere, e.g. inside "123"
+        first = digit_places(idx[:, :cut])
+        rest = digit_places(idx[:, cut:], first[:, -1])
+        assert torch.cat([first, rest], 1).tolist() == [want], cut
+
+
+def test_cached_decoding_matches_full_forward_with_digit_places():
+    torch.manual_seed(0)
+    cfg = tiny_cfg(n_layer=4, attn_every=2, digit_positions=12, digit_offset=4)
+    model = MadScienLM(cfg).eval()
+    idx = torch.randint(44, 60, (2, 24))                # mostly digits, so runs cross every split
+    with torch.no_grad():
+        full = model(idx).logits
+        caches = model.new_cache()
+        parts = [model(idx[:, :7], caches=caches).logits]
+        for t in range(7, 24):
+            parts.append(model(idx[:, t:t + 1], caches=caches).logits)
+    assert torch.allclose(full, torch.cat(parts, dim=1), atol=1e-4)
+
+
+def test_digit_offset_is_random_in_training_only_and_trains_the_place_table():
+    torch.manual_seed(0)
+    cfg = tiny_cfg(digit_positions=12, digit_offset=6)
+    model = MadScienLM(cfg)
+    idx = torch.tensor([list(b"9 * 4521 = 40689, 7 + 12 = 19")])          # every byte < tiny vocab 64
+    with torch.no_grad():
+        model.eval()
+        assert torch.equal(model(idx).logits, model(idx).logits)
+        model.train()
+        outs = [model(idx).logits for _ in range(8)]
+    assert any(not torch.allclose(outs[0], o) for o in outs[1:])
+    model.train()
+    model(idx, targets=idx).loss.backward()
+    grad = model.digit_emb.weight.grad
+    assert grad[1:].abs().sum() > 0 and grad[0].abs().sum() == 0   # place 0 (not a digit) is never used
+    plain = MadScienLM(tiny_cfg())
+    assert plain.digit_emb is None and sum(p.numel() for p in plain.parameters()) < model.num_params()

@@ -45,37 +45,71 @@ def _fmt(x):
 
 
 def _mul_steps(a, b):
-    """'a x b' split over the digits of b, ending in the product."""
+    """'a x b' split over the digits of b, then the partial products added two at a time:
+    '813 x 245 = 813 x 200 + 813 x 40 + 813 x 5 = 162600 + 32520 + 4065 = 195120 + 4065 = 199185'."""
     parts = [int(d) * 10 ** i for i, d in enumerate(reversed(str(b))) if d != "0"][::-1]
     if len(parts) < 2:
         return f"{a} x {b} = {a * b}"
-    terms = " + ".join(f"{a} x {p}" for p in parts)
-    values = " + ".join(str(a * p) for p in parts)
-    return f"{a} x {b} = {terms} = {values} = {a * b}"
+    values = [a * p for p in parts]
+    chain = [" + ".join(f"{a} x {p}" for p in parts)]
+    while len(values) > 1:
+        chain.append(" + ".join(map(str, values)))
+        values = [values[0] + values[1]] + values[2:]
+    return f"{a} x {b} = " + " = ".join(chain) + f" = {a * b}"
+
+
+def _sub_steps(a, b):
+    """'a - b' split over the digits of b; a negative result is worked out as -(b - a)."""
+    if a < b:
+        return f"{a} - {b} = -({b} - {a}), {_sub_steps(b, a)}, so {a} - {b} = {a - b}"
+    parts = [int(d) * 10 ** i for i, d in enumerate(reversed(str(b))) if d != "0"][::-1]
+    if len(parts) < 2:
+        return f"{a} - {b} = {a - b}"
+    chain, value = [f"{a} - " + " - ".join(map(str, parts))], a
+    for i, p in enumerate(parts[:-1]):
+        value -= p
+        chain.append(" - ".join([str(value)] + [str(q) for q in parts[i + 1:]]))
+    return f"{a} - {b} = " + " = ".join(chain) + f" = {a - b}"
+
+
+def _division_step(cur, den):
+    """'cur / den = q, cur - p = r' with p = q*den taken off in two parts, leading digit first:
+    '5062 / 3364 = 1, 5062 - 3364 = 5062 - 3000 - 364 = 2062 - 364 = 1698'. A full digit split
+    would make the longest solutions about twice as long."""
+    q = cur // den
+    p, r = q * den, cur - q * den
+    lead = int(str(p)[0]) * 10 ** (len(str(p)) - 1)
+    if p == lead:
+        return f"{cur} / {den} = {q}, {cur} - {p} = {r}"
+    return f"{cur} / {den} = {q}, {cur} - {p} = {cur} - {lead} - {p - lead} = {cur - lead} - {p - lead} = {r}"
 
 
 def _long_division(num, den, places=3):
-    """Digit-by-digit division. Returns (steps, value); a value cut off at `places` ends in '...'."""
-    steps, whole, rem = [], "", 0
-    for digit in str(num):
+    """Digit-by-digit division, each remainder worked out as a subtraction. Returns (steps, value);
+    a value cut off at `places` ends in '...'.
+    Each step says where it is, so the model never has to find its place by looking back: a step on
+    the dividend's digits ends in 'left' and the digits not used yet (the next one is brought down),
+    or 'left none'; a decimal step ends in 'decimal j of places'."""
+    steps, whole, rem, digits = [], "", 0, str(num)
+    for i, digit in enumerate(digits):
         cur = rem * 10 + int(digit)
         rem = cur % den
         if whole or cur >= den:
             whole += str(cur // den)
-            steps.append(f"{cur} / {den} = {cur // den} r {rem}")
+            steps.append(f"{_division_step(cur, den)}, left {digits[i + 1:] or 'none'}")
     decimals = ""
     while rem and len(decimals) < places:
         cur = rem * 10
         rem = cur % den
         decimals += str(cur // den)
-        steps.append(f"{cur} / {den} = {cur // den} r {rem}")
+        steps.append(f"{_division_step(cur, den)}, decimal {len(decimals)} of {places}")
     value = (whole or "0") + (f".{decimals}" if decimals else "") + ("..." if rem else "")
     return ", ".join(steps), value
 
 
 def coulomb_problem(q1, q2, r):
     product = 9 * q1
-    steps, force = _long_division(product * q2, r * r)
+    steps, force = _long_division(product * q2, r * r, places=2)    # keeps the longest solutions short
     return (f"Problem: Two charges {q1} uC and {q2} uC are {r} m apart. Find the force.",
             f" F = k q1 q2 / r^2 = 9e9 x {q1}e-6 x {q2}e-6 / {r}^2 N = 9 x {q1} x {q2} / {r}^2 mN. "
             f"{_mul_steps(9, q1)}. {_mul_steps(product, q2)}. {_mul_steps(r, r)}. {steps}. "
@@ -102,8 +136,8 @@ def bond_problem(nb, na):
     diff = nb - na
     verdict = "is stable" if diff > 0 else ("does not exist" if diff == 0 else "is unstable")
     return (f"Problem: A diatomic species has {nb} bonding and {na} antibonding electrons. Find the bond order.",
-            f" bond order = (Nb - Na) / 2 = ({nb} - {na}) / 2 = {diff} / 2 = {_fmt(diff / 2)}, "
-            f"so the species {verdict}.\n")
+            f" bond order = (Nb - Na) / 2 = ({nb} - {na}) / 2. {_sub_steps(nb, na)}. "
+            f"bond order = {diff} / 2 = {_fmt(diff / 2)}, so the species {verdict}.\n")
 
 
 def goc_problem(options):
@@ -117,17 +151,18 @@ def goc_problem(options):
 def king_problem(a, b, f):
     return (f"Problem: Evaluate the integral from {a} to {b} of f(x) / (f(x) + f({a + b} - x)) dx, f(x) = {f}.",
             f" By the King property I = integral of f({a + b} - x) / (f({a + b} - x) + f(x)) dx. "
-            f"Adding both gives 2I = integral of 1 dx = {b} - {a} = {b - a}, "
+            f"Adding both gives 2I = integral of 1 dx = {b} - {a}. {_sub_steps(b, a)}, "
             f"so I = {b - a} / 2 = {_fmt((b - a) / 2)}.\n")
 
 
 def combinations_problem(n, r):
+    """Each step is tagged '(i of k)', so the model can see how many steps are left without looking back."""
     k = min(r, n - r)
-    work = f"C({n},{r}) = C({n},{k}). " if k != r else ""
+    work = f"{n} - {r} = {k}, so C({n},{r}) = C({n},{k}). " if k != r else ""
     value = n
     for i in range(2, k + 1):
         product = value * (n - i + 1)
-        work += f"{value} x {n - i + 1} = {product}, {product} / {i} = {product // i}. "
+        work += f"{value} x {n - i + 1} = {product}, {product} / {i} = {product // i} ({i} of {k}). "
         value = product // i
     answer = math.comb(n, r)
     assert k == 0 or value == answer
@@ -139,28 +174,60 @@ def _int(rng, lo, hi):
     return int(rng.integers(lo, hi + 1))
 
 
+def _num(rng, max_digits, lo=1):
+    """A number of 1 to max_digits digits, each length equally likely, so long numbers are as common as
+    short ones and the model learns to copy numbers of every length it trains on."""
+    digits = _int(rng, 1, max_digits)
+    return _int(rng, max(lo, 10 ** (digits - 1)) if digits > 1 else lo, 10 ** digits - 1)
+
+
+def _big(rng, max_digits, lo=1):
+    """Like _num, but LONG_NUMBER_SHARE of the time exactly one digit longer. A few longer numbers teach
+    the model that a number in this place can run past max_digits, so it copies it whole."""
+    if rng.random() < LONG_NUMBER_SHARE:
+        return _int(rng, 10 ** max_digits, 10 ** (max_digits + 1) - 1)
+    return _num(rng, max_digits, lo)
+
+
 def _goc_options(rng):
     names = ["primary", "secondary", "tertiary"]
     return [names[i] for i in rng.permutation(3)[: _int(rng, 2, 3)]]
 
 
+def _king_limits(rng, max_digits):
+    while True:
+        a, b = sorted((_big(rng, max_digits, lo=0), _big(rng, max_digits, lo=0)))
+        if a < b:
+            return a, b
+
+
+def _draw_coulomb(rng):
+    while True:
+        q1, q2, r = _big(rng, 3), _big(rng, 3), _num(rng, 2)
+        if 9 * q1 * q2 >= r * r:                    # at least 1 mN, so 2 decimals never show 0.00...
+            return coulomb_problem(q1, q2, r)
+
+
 def _draw_king(rng):
-    a = _int(rng, 0, 60)
-    return king_problem(a, a + _int(rng, 1, 60), ["e^x", "x^2 + 1", "2^x"][_int(rng, 0, 2)])
+    return king_problem(*_king_limits(rng, 3), ["e^x", "x^2 + 1", "2^x"][_int(rng, 0, 2)])
 
 
 def _draw_combinations(rng):
-    n = _int(rng, 5, 20)
+    n = _int(rng, 5, MAX_COMBINATIONS_N)
     return combinations_problem(n, _int(rng, 1, n))
 
 
-# Training number ranges. Topics mirror the algorithm: electrostatics, EMI, angular momentum,
-# MOT bond order, GOC stability, King property, P&C.
+MAX_COMBINATIONS_N = 26
+MAX_DOC_TOKENS = 1664           # every document, in or out of range, fits in --block_size 1664
+LONG_NUMBER_SHARE = 0.05        # share of large numbers (not divisors) drawn one digit past the range
+
+# Training number ranges, as the most digits per number; _big numbers sometimes run one digit longer. Topics mirror the algorithm: electrostatics, EMI,
+# angular momentum, MOT bond order, GOC stability, King property, P&C.
 SYNTH_KINDS = {
-    "coulomb": lambda rng: coulomb_problem(_int(rng, 1, 99), _int(rng, 1, 99), _int(rng, 1, 19)),
-    "emf": lambda rng: emf_problem(_int(rng, 10, 999), _int(rng, 1, 99), _int(rng, 1, 9)),
-    "angular": lambda rng: angular_problem(_int(rng, 1, 99), _int(rng, 1, 99), _int(rng, 1, 19)),
-    "bond": lambda rng: bond_problem(_int(rng, 2, 60), _int(rng, 0, 60)),
+    "coulomb": _draw_coulomb,
+    "emf": lambda rng: emf_problem(_big(rng, 4), _big(rng, 3), _num(rng, 2)),
+    "angular": lambda rng: angular_problem(_big(rng, 3), _big(rng, 3), _num(rng, 2)),
+    "bond": lambda rng: bond_problem(_big(rng, 3, lo=2), _big(rng, 3, lo=0)),
     "goc": lambda rng: goc_problem(_goc_options(rng)),
     "king": _draw_king,
     "combinations": _draw_combinations,
@@ -225,18 +292,36 @@ def build_bins(docs, out_dir, val_frac=0.01, val_docs=None):
 
 
 class BinDataset:
-    def __init__(self, data_dir):
+    """align_docs=True starts every window at a document's BOS, so the model always sees the start of the
+    document it is predicting (for example the problem it is solving). Tokens more than block_size into a
+    document are then never trained on, so use a block_size that fits whole documents."""
+
+    def __init__(self, data_dir, align_docs=False):
         self.data = {s: np.memmap(os.path.join(data_dir, f"{s}.bin"), dtype=np.uint16, mode="r")
                      for s in ("train", "val")}
         with open(os.path.join(data_dir, "meta.json")) as f:
             self.meta = json.load(f)
+        self.align_docs = align_docs
+        self._starts = {}
+
+    def doc_starts(self, split, block_size):
+        """BOS positions that leave room for a full window."""
+        if split not in self._starts:
+            self._starts[split] = np.flatnonzero(np.asarray(self.data[split]) == BOS)
+        starts = self._starts[split]
+        return starts[starts < len(self.data[split]) - block_size - 1]
 
     def get_batch(self, split, batch_size, block_size, device, generator=None):
         import torch
         d = self.data[split]
         hi = len(d) - block_size - 1
         assert hi > 0, f"{split}.bin has only {len(d)} tokens, need > block_size+1"
-        ix = torch.randint(hi, (batch_size,), generator=generator)
+        if self.align_docs:
+            starts = self.doc_starts(split, block_size)
+            assert len(starts), f"{split}.bin has no document start with a full window after it"
+            ix = starts[torch.randint(len(starts), (batch_size,), generator=generator).numpy()]
+        else:
+            ix = torch.randint(hi, (batch_size,), generator=generator)
         x = torch.stack([torch.from_numpy(d[i:i + block_size].astype(np.int64)) for i in ix])
         y = torch.stack([torch.from_numpy(d[i + 1:i + 1 + block_size].astype(np.int64)) for i in ix])
         if str(device).startswith("cuda"):

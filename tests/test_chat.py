@@ -67,7 +67,7 @@ def test_synthetic_coulomb_answers_never_round_to_zero():
             q1, q2, r = map(int, re.findall(r"(\d+) uC and (\d+) uC are (\d+) m", d)[0])
             got = float(re.findall(r"F = ([0-9.]+?)(?:\.\.\.)? mN", d)[0])
             want = 9 * q1 * q2 / r ** 2                 # 9e9 x 1e-6 x 1e-6 N = 9 mN
-            assert got > 0 and 0 <= want - got < 0.001, d   # cut off at 3 decimals, never rounded
+            assert got > 0 and 0 <= want - got < 0.01, d    # cut off at 2 decimals, never rounded
 
 
 def test_synthetic_conversations_are_well_formed_and_varied():
